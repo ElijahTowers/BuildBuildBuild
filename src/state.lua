@@ -14,7 +14,10 @@ state.ui = {
   isBuildMenuOpen = false,
   isPlacingBuilding = false,
   selectedBuildingType = nil,
-  isPaused = false
+  isPaused = false,
+  buildMenuAlpha = 0, -- 0..1 animated alpha/scale for build menu
+  previewT = 0,       -- time accumulator for placement preview pulse
+  selectedBuilding = nil -- reference to clicked building (for radius display)
 }
 
 -- Resources and buildings
@@ -61,6 +64,9 @@ function state.restart()
   state.ui.isPlacingBuilding = false
   state.ui.selectedBuildingType = nil
   state.ui.isPaused = false
+  state.ui.buildMenuAlpha = 0
+  state.ui.previewT = 0
+  state.ui.selectedBuilding = nil
   state.camera.x, state.camera.y = 0, 0
 end
 

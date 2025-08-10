@@ -77,6 +77,10 @@ function trees.draw(state)
       local r = TILE_SIZE * 0.4
       local sx, sy = trees.getShakeOffset(t)
 
+      -- shadow
+      love.graphics.setColor(0, 0, 0, 0.22)
+      love.graphics.ellipse('fill', cx, cy + TILE_SIZE * 0.18, r, r * 0.35)
+
       local beingChopped = t.beingChopped
       if beingChopped then
         love.graphics.setColor(colors.treeFill[1], colors.treeFill[2], colors.treeFill[3], 0.8)

@@ -77,8 +77,13 @@ local function drawPlacementPreview()
   end
 
   love.graphics.rectangle('fill', px, py, TILE_SIZE, TILE_SIZE, 4, 4)
-  love.graphics.setColor(colors.outline)
+
+  -- pulsing outline
+  local pulse = 0.5 + 0.5 * math.sin(state.ui.previewT * 6)
+  love.graphics.setColor(colors.outline[1], colors.outline[2], colors.outline[3], 0.2 + 0.4 * pulse)
+  love.graphics.setLineWidth(2)
   love.graphics.rectangle('line', px, py, TILE_SIZE, TILE_SIZE, 4, 4)
+  love.graphics.setLineWidth(1)
 end
 
 -- Pause menu click handling
@@ -112,15 +117,19 @@ function love.load()
 end
 
 function love.update(dt)
-  if state.ui.isPaused then return end
+  if state.ui.isPaused or state.ui.isBuildMenuOpen then return end
 
   -- Passive production placeholder (none currently for lumberyard)
   state.game.productionRates.wood = 0
 
   -- Systems
   workers.update(state, dt)
+  buildings.update(state, dt)
   particles.update(state.game.particles, dt)
   trees.updateShake(state, dt)
+
+  -- Preview timer for pulsing outline
+  state.ui.previewT = state.ui.previewT + dt
 
   -- Mouse edge panning
   local mx, my = love.mouse.getPosition()
@@ -146,11 +155,21 @@ function love.draw()
   love.graphics.push()
   love.graphics.translate(-state.camera.x, -state.camera.y)
 
-  grid.draw(state)
-  buildings.drawLumberyardRadii(state)
+  if state.ui.isPlacingBuilding and state.ui.selectedBuildingType then
+    grid.draw(state)
+  end
+  buildings.drawSelectedRadius(state)
   trees.draw(state)
   buildings.drawAll(state)
   workers.draw(state)
+
+  -- Dim the world during placement preview (but keep the preview bright)
+  if state.ui.isPlacingBuilding and state.ui.selectedBuildingType then
+    local screenW, screenH = love.graphics.getDimensions()
+    love.graphics.setColor(0, 0, 0, 0.35)
+    love.graphics.rectangle('fill', state.camera.x, state.camera.y, screenW, screenH)
+  end
+
   drawPlacementPreview()
   particles.draw(state.game.particles)
 
@@ -161,7 +180,7 @@ function love.draw()
   ui.drawBuildMenu(state, state.buildingDefs)
   ui.drawHUD(state)
 
-  if not state.ui.isPaused then
+  if not state.ui.isPaused and not state.ui.isBuildMenuOpen then
     love.graphics.setColor(colors.text)
     local hintY = love.graphics.getHeight() - 24
     love.graphics.print("Click 'Build' -> choose 'House' or 'Lumberyard' -> place on the map. Move mouse to screen edges to pan. Right click to cancel placement.", 16, hintY)
@@ -170,12 +189,23 @@ function love.draw()
   ui.drawPauseMenu(state)
 end
 
+local function hitTestBuildingAt(state, tileX, tileY)
+  for _, b in ipairs(state.game.buildings) do
+    if b.tileX == tileX and b.tileY == tileY then
+      return b
+    end
+  end
+  return nil
+end
+
 function love.mousepressed(x, y, button)
-  if state.ui.isPaused then
+  -- If pause menu is open (not build overlay), route to pause menu
+  if state.ui.isPaused and not state.ui.isBuildMenuOpen then
     if button == 1 then handlePauseMenuClick(x, y) end
     return
   end
 
+  -- Right click cancels placement or closes build menu or deselects
   if button == 2 then
     if state.ui.isPlacingBuilding then
       state.ui.isPlacingBuilding = false
@@ -184,16 +214,25 @@ function love.mousepressed(x, y, button)
     elseif state.ui.isBuildMenuOpen then
       state.ui.isBuildMenuOpen = false
       return
+    else
+      state.ui.selectedBuilding = nil
+      return
     end
   end
 
   if button ~= 1 then return end
 
+  -- Toggle build overlay
   if ui.isOverBuildButton(x, y) then
     state.ui.isBuildMenuOpen = not state.ui.isBuildMenuOpen
+    if state.ui.isBuildMenuOpen then
+      state.ui.isPlacingBuilding = false
+      state.ui.selectedBuildingType = nil
+    end
     return
   end
 
+  -- Handle clicks on build menu
   if state.ui.isBuildMenuOpen then
     local option = ui.getBuildMenuOptionAt(x, y)
     if option then
@@ -203,9 +242,19 @@ function love.mousepressed(x, y, button)
       return
     else
       state.ui.isBuildMenuOpen = false
+      return
     end
   end
 
+  -- If not placing, try selecting a building
+  if not state.ui.isPlacingBuilding then
+    local tileX, tileY = getMouseTile()
+    local b = hitTestBuildingAt(state, tileX, tileY)
+    state.ui.selectedBuilding = b
+    if b then return end
+  end
+
+  -- Handle placement
   if state.ui.isPlacingBuilding and state.ui.selectedBuildingType then
     local tileX, tileY = getMouseTile()
     if not isOverUI(x, y)
@@ -225,6 +274,10 @@ end
 
 function love.keypressed(key)
   if key == 'escape' then
+    if state.ui.isBuildMenuOpen then
+      state.ui.isBuildMenuOpen = false
+      return
+    end
     state.ui.isPaused = not state.ui.isPaused
     return
   end

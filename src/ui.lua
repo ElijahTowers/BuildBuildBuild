@@ -10,8 +10,8 @@ local ui = {}
 ui.buildButton = { x = 16, y = 16, width = 120, height = 40, label = "Build" }
 
 ui.buildMenu = {
-  x = 16,
-  y = 72,
+  x = 16, -- not used for drawing when centered, kept for compatibility
+  y = 72, -- not used for drawing when centered, kept for compatibility
   width = 220,
   height = 120,
   optionHeight = 48,
@@ -38,18 +38,52 @@ function ui.computeBuildMenuHeight()
   ui.buildMenu.height = padding + (ui.buildMenu.optionHeight * count) + (spacing * math.max(0, count - 1)) + padding
 end
 
+-- Dynamically compute a width that fits the widest option text
+function ui.computeBuildMenuSize(buildingDefs)
+  local minWidth = 320
+  local paddingLeftToText = 12 + 52 -- left panel padding + icon area
+  local paddingRight = 12
+  local maxTextW = 0
+  for _, option in ipairs(ui.buildMenu.options) do
+    local def = buildingDefs[option.key]
+    local costText = ""
+    if def and def.cost and def.cost.wood then
+      costText = string.format(" (Cost: %d wood)", def.cost.wood)
+    end
+    local text = option.label .. costText
+    local textW = love.graphics.getFont():getWidth(text)
+    if textW > maxTextW then maxTextW = textW end
+  end
+  ui.buildMenu.width = math.max(minWidth, paddingLeftToText + maxTextW + paddingRight)
+end
+
+-- Returns centered rect for the build menu
+function ui.getBuildMenuRect()
+  local m = ui.buildMenu
+  local screenW, screenH = love.graphics.getDimensions()
+  local x = (screenW - m.width) / 2
+  local y = (screenH - m.height) / 2
+  return x, y, m.width, m.height
+end
+
 function ui.isOverBuildButton(mx, my)
   local b = ui.buildButton
   return utils.isPointInRect(mx, my, b.x, b.y, b.width, b.height)
 end
 
+function ui.isOverBuildMenu(mx, my)
+  local x, y, w, h = ui.getBuildMenuRect()
+  return utils.isPointInRect(mx, my, x, y, w, h)
+end
+
 function ui.getBuildMenuOptionAt(mx, my)
   local m = ui.buildMenu
   local optionHeight = m.optionHeight
+  local x, y, w, h = ui.getBuildMenuRect()
   for index, option in ipairs(m.options) do
-    local ox = m.x + 12
-    local oy = m.y + 12 + (index - 1) * (optionHeight + 8)
-    local ow = m.width - 24
+    local ox = x + 12
+    local oy = y + 12 + (index - 1) * (optionHeight + 8)
+    local ow = w - 24
     local oh = optionHeight
     if utils.isPointInRect(mx, my, ox, oy, ow, oh) then
       return option
@@ -71,18 +105,37 @@ function ui.drawBuildButton()
 end
 
 function ui.drawBuildMenu(state, buildingDefs)
-  if not state.ui.isBuildMenuOpen then return end
+  if not state.ui.isBuildMenuOpen and state.ui.buildMenuAlpha <= 0 then return end
+  ui.computeBuildMenuSize(buildingDefs)
+
+  -- Animate alpha towards target (open -> 1, closed -> 0)
+  local target = state.ui.isBuildMenuOpen and 1 or 0
+  state.ui.buildMenuAlpha = state.ui.buildMenuAlpha + (target - state.ui.buildMenuAlpha) * 0.2
+  local a = state.ui.buildMenuAlpha
+  if a < 0.01 then return end
+
   local m = ui.buildMenu
-  love.graphics.setColor(colors.uiPanel)
-  love.graphics.rectangle("fill", m.x, m.y, m.width, m.height, 8, 8)
-  love.graphics.setColor(colors.uiPanelOutline)
-  love.graphics.rectangle("line", m.x, m.y, m.width, m.height, 8, 8)
+  local x, y, w, h = ui.getBuildMenuRect()
+
+  love.graphics.setColor(0, 0, 0, 0.2 * a)
+  love.graphics.rectangle('fill', 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
+
+  local scale = 0.95 + 0.05 * a
+  love.graphics.push()
+  love.graphics.translate(x + w / 2, y + h / 2)
+  love.graphics.scale(scale, scale)
+  love.graphics.translate(-(x + w / 2), -(y + h / 2))
+
+  love.graphics.setColor(colors.uiPanel[1], colors.uiPanel[2], colors.uiPanel[3], (colors.uiPanel[4] or 1) * a)
+  love.graphics.rectangle("fill", x, y, w, h, 8, 8)
+  love.graphics.setColor(colors.uiPanelOutline[1], colors.uiPanelOutline[2], colors.uiPanelOutline[3], (colors.uiPanelOutline[4] or 1) * a)
+  love.graphics.rectangle("line", x, y, w, h, 8, 8)
 
   local optionHeight = m.optionHeight
   for index, option in ipairs(m.options) do
-    local ox = m.x + 12
-    local oy = m.y + 12 + (index - 1) * (optionHeight + 8)
-    local ow = m.width - 24
+    local ox = x + 12
+    local oy = y + 12 + (index - 1) * (optionHeight + 8)
+    local ow = w - 24
     local oh = optionHeight
     local mx, my = love.mouse.getPosition()
     local hovered = utils.isPointInRect(mx, my, ox, oy, ow, oh)
@@ -95,7 +148,7 @@ function ui.drawBuildMenu(state, buildingDefs)
     love.graphics.setColor(option.color)
     love.graphics.rectangle("fill", ox + 10, oy + 8, 32, 32, 4, 4)
 
-    love.graphics.setColor(colors.text)
+    love.graphics.setColor(colors.text[1], colors.text[2], colors.text[3], (colors.text[4] or 1) * a)
     local def = buildingDefs[option.key]
     local costText = ""
     if def and def.cost and def.cost.wood then
@@ -103,6 +156,8 @@ function ui.drawBuildMenu(state, buildingDefs)
     end
     love.graphics.print(option.label .. costText, ox + 52, oy + 12)
   end
+
+  love.graphics.pop()
 end
 
 function ui.drawHUD(state)

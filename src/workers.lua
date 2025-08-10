@@ -141,11 +141,9 @@ local function updateWorker(state, b, w, dt)
       return
     end
 
-    -- Apply damage over time
     t.health = t.health - def.chopRate * dt
     w.chopProgress = w.chopProgress + def.chopRate * dt
 
-    -- Half swing: trigger impact at halfway
     w.swingProgress = (w.swingProgress or 0) + dt * (w.swingHz or 1.8)
     if w.swingProgress >= 0.5 then
       w.swingProgress = w.swingProgress - 0.5
@@ -158,6 +156,7 @@ local function updateWorker(state, b, w, dt)
       t.shakeDirX, t.shakeDirY = dirX, dirY
       t.shakePower = math.min(4.0, (t.shakePower or 0) + 1.6)
       t.shakeTime = 0
+      particles.spawnSawdust(state.game.particles, cx, cy, dirX, dirY)
     end
 
     if t.health <= 0 then
@@ -200,6 +199,10 @@ function workers.draw(state)
   for _, b in ipairs(state.game.buildings) do
     if b.type == "lumberyard" and b.workers then
       for _, w in ipairs(b.workers) do
+        -- Soft shadow
+        love.graphics.setColor(0, 0, 0, 0.25)
+        love.graphics.ellipse('fill', w.x, w.y + 6, 7, 3)
+
         love.graphics.setColor(colors.worker)
         love.graphics.rectangle("fill", w.x - 5, w.y - 5, 10, 10, 2, 2)
         love.graphics.setColor(colors.outline)
