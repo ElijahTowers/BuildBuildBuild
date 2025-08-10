@@ -56,7 +56,11 @@ local colors = {
   treeFill = { 0.15, 0.55, 0.20, 1.0 },
   treeOutline = { 0.08, 0.25, 0.10, 0.7 },
   radius = { 0.3, 0.7, 0.3, 0.12 },
-  radiusOutline = { 0.35, 0.8, 0.35, 0.25 }
+  radiusOutline = { 0.35, 0.8, 0.35, 0.25 },
+  particleLeaf = { 0.35, 0.75, 0.35, 0.9 },
+  worker = { 0.95, 0.88, 0.6, 1.0 },
+  workerCarry = { 0.55, 0.35, 0.2, 1.0 },
+  choppingRing = { 1.0, 1.0, 1.0, 0.3 }
 }
 
 local buildings = {}
@@ -64,7 +68,10 @@ local buildings = {}
 -- Trees
 local trees = {}
 
--- Building definitions: cost and active chopping behavior
+-- Particles
+local particles = {}
+
+-- Building definitions: cost and active workers behavior
 local buildingDefs = {
   house = {
     cost = { wood = 10 },
@@ -72,10 +79,12 @@ local buildingDefs = {
   },
   lumberyard = {
     cost = { wood = 20 },
-    production = nil, -- replaced by active chopping
-    radiusTiles = 6,   -- chopping radius in tiles
-    chopRate = 1.0,    -- tree health per second
-    woodPerTree = 6    -- wood gained per felled tree
+    production = nil,
+    radiusTiles = 6,
+    chopRate = 1.0,
+    woodPerTree = 6,
+    numWorkers = 2,
+    workerSpeed = 120 -- pixels per second
   }
 }
 
@@ -154,6 +163,92 @@ local function payCost(buildingType)
   end
 end
 
+local function spawnLeafBurst(tileX, tileY)
+  local cx = tileX * TILE_SIZE + TILE_SIZE / 2
+  local cy = tileY * TILE_SIZE + TILE_SIZE / 2
+  for i = 1, 24 do
+    local angle = math.random() * math.pi * 2
+    local speed = 40 + math.random() * 100
+    local vx = math.cos(angle) * speed
+    local vy = math.sin(angle) * speed
+    table.insert(particles, {
+      x = cx,
+      y = cy,
+      vx = vx,
+      vy = vy,
+      life = 0.8 + math.random() * 0.6,
+      age = 0,
+      size = 2 + math.random() * 2,
+      color = { colors.particleLeaf[1], colors.particleLeaf[2], colors.particleLeaf[3], colors.particleLeaf[4] }
+    })
+  end
+end
+
+local function updateParticles(dt)
+  for i = #particles, 1, -1 do
+    local p = particles[i]
+    p.age = p.age + dt
+    p.x = p.x + p.vx * dt
+    p.y = p.y + p.vy * dt
+    p.vy = p.vy + 60 * dt -- gravity
+    if p.age >= p.life then
+      table.remove(particles, i)
+    end
+  end
+end
+
+local function updateTreeShake(dt)
+  for _, t in ipairs(trees) do
+    if (t.shakePower or 0) > 0 then
+      t.shakeTime = (t.shakeTime or 0) + dt
+      -- Exponential-like decay via linear on amplitude
+      t.shakePower = math.max(0, (t.shakePower or 0) - 3.0 * dt)
+    end
+  end
+end
+
+-- Helpers for tree shake and axe clipping
+local function getTreeShakeOffset(t)
+  local shakeX, shakeY = 0, 0
+  local power = t.shakePower or 0
+  if power > 0 then
+    local dirX = t.shakeDirX or 0
+    local dirY = t.shakeDirY or 0
+    local freq = 35
+    local osc = math.sin((t.shakeTime or 0) * freq)
+    shakeX = osc * power * dirX
+    shakeY = osc * power * dirY
+  end
+  return shakeX, shakeY
+end
+
+local function computeMaxAxeLength(wx, wy, angle, cx, cy, radius, maxArmLen, gap)
+  local ux, uy = math.cos(angle), math.sin(angle)
+  local dx = wx - cx
+  local dy = wy - cy
+  local b = 2 * (ux * dx + uy * dy)
+  local c = dx * dx + dy * dy - radius * radius
+  local disc = b * b - 4 * c
+  if disc <= 0 then return maxArmLen end
+  local sqrtDisc = math.sqrt(disc)
+  local t1 = (-b - sqrtDisc) / 2
+  local t2 = (-b + sqrtDisc) / 2
+  local tHit
+  if t1 >= 0 then tHit = t1 elseif t2 >= 0 then tHit = t2 end
+  if not tHit then return maxArmLen end
+  local len = math.min(maxArmLen, tHit - (gap or 2))
+  if len < 0 then len = 0 end
+  return len
+end
+
+local function drawParticles()
+  for _, p in ipairs(particles) do
+    local alpha = 1 - (p.age / p.life)
+    love.graphics.setColor(p.color[1], p.color[2], p.color[3], alpha)
+    love.graphics.rectangle("fill", p.x - p.size / 2, p.y - p.size / 2, p.size, p.size)
+  end
+end
+
 local function placeBuilding(selectedType, tileX, tileY)
   local color
   if selectedType == "house" then
@@ -171,9 +266,28 @@ local function placeBuilding(selectedType, tileX, tileY)
     color = color
   }
 
-  -- Initialize chopping state for lumberyard
+  -- Initialize workers for lumberyard
   if selectedType == "lumberyard" then
-    newBuilding.chopTargetIndex = nil
+    newBuilding.workers = {}
+    local def = buildingDefs.lumberyard
+    local cx = tileX * TILE_SIZE + TILE_SIZE / 2
+    local cy = tileY * TILE_SIZE + TILE_SIZE / 2
+    for i = 1, def.numWorkers do
+      table.insert(newBuilding.workers, {
+        x = cx + (i - 1) * 6 - 6,
+        y = cy,
+        state = "idle",
+        targetTileX = nil,
+        targetTileY = nil,
+        targetTreeIndex = nil,
+        carryWood = false,
+        chopProgress = 0,
+        swingProgress = 0,
+        lastSwingProgress = 0,
+        swingHz = 1.8,
+        swingImpacted = false
+      })
+    end
   end
 
   table.insert(buildings, newBuilding)
@@ -263,10 +377,23 @@ local function drawTrees()
       local cx = t.tileX * TILE_SIZE + TILE_SIZE / 2
       local cy = t.tileY * TILE_SIZE + TILE_SIZE / 2
       local r = TILE_SIZE * 0.4
-      love.graphics.setColor(colors.treeFill)
-      love.graphics.circle("fill", cx, cy, r)
+
+      local shakeX, shakeY = getTreeShakeOffset(t)
+
+      local beingChopped = t.beingChopped
+      if beingChopped then
+        love.graphics.setColor(colors.treeFill[1], colors.treeFill[2], colors.treeFill[3], 0.8)
+      else
+        love.graphics.setColor(colors.treeFill)
+      end
+      love.graphics.circle("fill", cx + shakeX, cy + shakeY, r)
       love.graphics.setColor(colors.treeOutline)
-      love.graphics.circle("line", cx, cy, r)
+      love.graphics.circle("line", cx + shakeX, cy + shakeY, r)
+
+      if beingChopped then
+        love.graphics.setColor(colors.choppingRing)
+        love.graphics.circle("line", cx, cy, r + 6)
+      end
     end
   end
 end
@@ -298,6 +425,48 @@ local function drawBuildings()
   end
 end
 
+local function drawWorkers()
+  for _, b in ipairs(buildings) do
+    if b.type == "lumberyard" and b.workers then
+      for _, w in ipairs(b.workers) do
+        love.graphics.setColor(colors.worker)
+        love.graphics.rectangle("fill", w.x - 5, w.y - 5, 10, 10, 2, 2)
+        love.graphics.setColor(colors.outline)
+        love.graphics.rectangle("line", w.x - 5, w.y - 5, 10, 10, 2, 2)
+        if w.carryWood then
+          love.graphics.setColor(colors.workerCarry)
+          love.graphics.rectangle("fill", w.x - 3, w.y - 12, 6, 4)
+        end
+        if w.state == "chopping" and w.targetTileX and w.targetTileY then
+          -- Axe swing visualization, clipped before tree fill
+          local t = trees[w.targetTreeIndex]
+          local tx = w.targetTileX * TILE_SIZE + TILE_SIZE / 2
+          local ty = w.targetTileY * TILE_SIZE + TILE_SIZE / 2
+          local sx, sy = 0, 0
+          if t then sx, sy = getTreeShakeOffset(t) end
+          local cx, cy = tx + sx, ty + sy
+          local baseAngle = math.atan2(cy - w.y, cx - w.x)
+          local swingArc = 0.6 -- radians
+          local forward = math.min((w.swingProgress or 0) * 2, 1)
+          local angle = baseAngle - swingArc + forward * swingArc
+          local armLen = 18
+          local radius = TILE_SIZE * 0.4
+          local maxLen = computeMaxAxeLength(w.x, w.y, angle, cx, cy, radius, armLen, 2)
+          local ax = w.x + math.cos(angle) * maxLen
+          local ay = w.y + math.sin(angle) * maxLen
+          love.graphics.setColor(colors.outline)
+          love.graphics.setLineWidth(2)
+          love.graphics.line(w.x, w.y, ax, ay)
+          love.graphics.setLineWidth(1)
+
+          love.graphics.setColor(colors.choppingRing)
+          love.graphics.circle("line", tx, ty, TILE_SIZE * 0.55)
+        end
+      end
+    end
+  end
+end
+
 local function drawPlacementPreview()
   if uiState.isPaused then return end
   if not uiState.isPlacingBuilding or not uiState.selectedBuildingType then
@@ -309,6 +478,18 @@ local function drawPlacementPreview()
   local py = tileY * TILE_SIZE
 
   local isValid = canPlaceAt(tileX, tileY) and not isOverUI(love.mouse.getX(), love.mouse.getY()) and canAfford(uiState.selectedBuildingType)
+
+  -- If previewing a lumberyard, draw its radius
+  if uiState.selectedBuildingType == "lumberyard" then
+    local def = buildingDefs.lumberyard
+    local radiusPx = def.radiusTiles * TILE_SIZE
+    local cx = px + TILE_SIZE / 2
+    local cy = py + TILE_SIZE / 2
+    love.graphics.setColor(colors.radius)
+    love.graphics.circle("fill", cx, cy, radiusPx)
+    love.graphics.setColor(colors.radiusOutline)
+    love.graphics.circle("line", cx, cy, radiusPx)
+  end
 
   if not isValid then
     love.graphics.setColor(colors.invalid)
@@ -328,7 +509,7 @@ local function drawPlacementPreview()
 end
 
 local function getTotalProductionPerSecond()
-  -- Only passive production counted here; lumberyards use active chopping -> 0 by default
+  -- Only passive production counted here; workers provide active production
   local totals = { wood = 0 }
   for _, b in ipairs(buildings) do
     local def = buildingDefs[b.type]
@@ -344,8 +525,8 @@ end
 local function drawHUD()
   local x = buildButton.x + buildButton.width + 16
   local y = 16
-  local w = 300
-  local h = 68
+  local w = 320
+  local h = 84
 
   love.graphics.setColor(colors.uiPanel)
   love.graphics.rectangle("fill", x, y, w, h, 8, 8)
@@ -372,7 +553,185 @@ local function drawHUD()
 
     if uiState.selectedBuildingType == "lumberyard" then
       love.graphics.setColor(colors.text)
-      love.graphics.print(string.format("Radius: %d tiles", buildingDefs.lumberyard.radiusTiles), x + 12, y + 48)
+      love.graphics.print(string.format("Radius: %d tiles, Workers: %d", buildingDefs.lumberyard.radiusTiles, buildingDefs.lumberyard.numWorkers), x + 12, y + 48)
+    end
+  end
+end
+
+local function distanceSqTiles(ax, ay, bx, by)
+  local dx = ax - bx
+  local dy = ay - by
+  return dx * dx + dy * dy
+end
+
+local function acquireTreeForWorker(b, w)
+  local def = buildingDefs.lumberyard
+  local bestIndex, bestDistSq
+  local bx, by = b.tileX, b.tileY
+  bestDistSq = math.huge
+  for index, t in ipairs(trees) do
+    if t.alive and not t.reserved then
+      local distSq = distanceSqTiles(bx, by, t.tileX, t.tileY)
+      if distSq <= (def.radiusTiles * def.radiusTiles) and distSq < bestDistSq then
+        bestDistSq = distSq
+        bestIndex = index
+      end
+    end
+  end
+  if bestIndex then
+    local t = trees[bestIndex]
+    t.reserved = true
+    t.beingChopped = true
+    w.targetTreeIndex = bestIndex
+    w.targetTileX = t.tileX
+    w.targetTileY = t.tileY
+    w.state = "toTree"
+  else
+    w.state = "idle"
+  end
+end
+
+local function updateWorker(b, w, dt)
+  local def = buildingDefs.lumberyard
+  local function goTo(px, py)
+    local dx = px - w.x
+    local dy = py - w.y
+    local dist = math.sqrt(dx * dx + dy * dy)
+    if dist < 2 then
+      w.x = px
+      w.y = py
+      return true
+    end
+    local vx = dx / (dist + 1e-6)
+    local vy = dy / (dist + 1e-6)
+    w.x = w.x + vx * def.workerSpeed * dt
+    w.y = w.y + vy * def.workerSpeed * dt
+    return false
+  end
+
+  if w.state == "idle" then
+    acquireTreeForWorker(b, w)
+
+  elseif w.state == "toTree" then
+    local t = trees[w.targetTreeIndex]
+    if not t or not t.alive then
+      w.state = "idle"
+      if t then t.reserved = false; t.beingChopped = false; t.shakeTime = 0 end
+      w.targetTreeIndex = nil
+      return
+    end
+    local centerX = w.targetTileX * TILE_SIZE + TILE_SIZE / 2
+    local centerY = w.targetTileY * TILE_SIZE + TILE_SIZE / 2
+    local treeRadius = TILE_SIZE * 0.4
+    local approachMargin = 12
+    local approachDist = treeRadius + approachMargin
+    local dirX = centerX - w.x
+    local dirY = centerY - w.y
+    local len = math.sqrt(dirX * dirX + dirY * dirY)
+    if len < 1 then len = 1 end
+    dirX = dirX / len
+    dirY = dirY / len
+    local targetPx = centerX - dirX * approachDist
+    local targetPy = centerY - dirY * approachDist
+
+    if goTo(targetPx, targetPy) then
+      w.state = "chopping"
+      w.chopProgress = 0
+      w.swingProgress = 0
+      w.lastSwingProgress = 0
+      w.swingImpacted = false
+    end
+
+  elseif w.state == "chopping" then
+    local t = trees[w.targetTreeIndex]
+    if not t or not t.alive then
+      w.state = "idle"
+      if t then t.reserved = false; t.beingChopped = false; t.shakeTime = 0 end
+      w.targetTreeIndex = nil
+      return
+    end
+    -- Damage tree continuously
+    t.health = t.health - def.chopRate * dt
+    w.chopProgress = w.chopProgress + def.chopRate * dt
+
+    -- Forward-only swing; stop visually at halfway and trigger impact then
+    w.swingProgress = (w.swingProgress or 0) + dt * (w.swingHz or 1.8)
+    if w.swingProgress >= 0.5 then
+      -- Impact moment at halfway
+      w.swingProgress = w.swingProgress - 0.5
+      local cx = w.targetTileX * TILE_SIZE + TILE_SIZE / 2
+      local cy = w.targetTileY * TILE_SIZE + TILE_SIZE / 2
+      local dirX = cx - w.x
+      local dirY = cy - w.y
+      local len = math.sqrt(dirX * dirX + dirY * dirY)
+      if len > 0 then dirX = dirX / len; dirY = dirY / len end
+      t.shakeDirX, t.shakeDirY = dirX, dirY
+      t.shakePower = math.min(4.0, (t.shakePower or 0) + 1.6)
+      t.shakeTime = 0
+    end
+
+    if t.health <= 0 then
+      t.alive = false
+      t.reserved = false
+      t.beingChopped = false
+      t.shakeTime = 0
+      spawnLeafBurst(w.targetTileX, w.targetTileY)
+      w.carryWood = true
+      w.state = "returning"
+    end
+
+  elseif w.state == "returning" then
+    local homePx = b.tileX * TILE_SIZE + TILE_SIZE / 2
+    local homePy = b.tileY * TILE_SIZE + TILE_SIZE / 2
+    if goTo(homePx, homePy) then
+      if w.carryWood then
+        gameState.resources.wood = (gameState.resources.wood or 0) + def.woodPerTree
+        w.carryWood = false
+      end
+      w.state = "idle"
+      w.targetTreeIndex = nil
+      w.targetTileX, w.targetTileY = nil, nil
+    end
+  end
+end
+
+local function updateWorkers(dt)
+  for _, b in ipairs(buildings) do
+    if b.type == "lumberyard" and b.workers then
+      for _, w in ipairs(b.workers) do
+        updateWorker(b, w, dt)
+      end
+    end
+  end
+end
+
+local function generateTrees()
+  trees = {}
+  local tilesX = world.tilesX
+  local tilesY = world.tilesY
+
+  local clusterCount = 48
+  local minClusterSize, maxClusterSize = 8, 22
+  local clusterSpreadTiles = 5
+
+  local occupied = {}
+  local function key(x, y) return x .. "," .. y end
+
+  for _ = 1, clusterCount do
+    local cx = math.random(2, tilesX - 3)
+    local cy = math.random(3, tilesY - 3)
+    local clusterSize = math.random(minClusterSize, maxClusterSize)
+
+    for _ = 1, clusterSize do
+      local ox = math.random(-clusterSpreadTiles, clusterSpreadTiles)
+      local oy = math.random(-clusterSpreadTiles, clusterSpreadTiles)
+      local tx = math.max(0, math.min(tilesX - 1, cx + ox))
+      local ty = math.max(0, math.min(tilesY - 1, cy + oy))
+      local k = key(tx, ty)
+      if not occupied[k] then
+        occupied[k] = true
+        table.insert(trees, { tileX = tx, tileY = ty, alive = true, health = 3.0, reserved = false, beingChopped = false, shakeTime = 0, shakePower = 0, shakeDirX = 0, shakeDirY = 0 })
+      end
     end
   end
 end
@@ -380,6 +739,7 @@ end
 local function restartGame()
   buildings = {}
   trees = {}
+  particles = {}
   gameState.resources = { wood = 50 }
   gameState.productionRates = { wood = 0 }
   uiState.isBuildMenuOpen = false
@@ -445,91 +805,6 @@ local function handlePauseMenuClick(x, y)
   return true
 end
 
-local function distanceSqTiles(ax, ay, bx, by)
-  local dx = ax - bx
-  local dy = ay - by
-  return dx * dx + dy * dy
-end
-
-local function acquireTreeTargetForLumberyard(b)
-  local def = buildingDefs.lumberyard
-  local bestIndex = nil
-  local bestDistSq = math.huge
-  for index, t in ipairs(trees) do
-    if t.alive then
-      local distSq = distanceSqTiles(b.tileX, b.tileY, t.tileX, t.tileY)
-      if distSq <= (def.radiusTiles * def.radiusTiles) and distSq < bestDistSq then
-        bestDistSq = distSq
-        bestIndex = index
-      end
-    end
-  end
-  b.chopTargetIndex = bestIndex
-end
-
-local function updateLumberyards(dt)
-  for _, b in ipairs(buildings) do
-    if b.type == "lumberyard" then
-      local def = buildingDefs.lumberyard
-      if not b.chopTargetIndex then
-        acquireTreeTargetForLumberyard(b)
-      end
-
-      if b.chopTargetIndex then
-        local t = trees[b.chopTargetIndex]
-        -- Validate target
-        if not t or not t.alive then
-          b.chopTargetIndex = nil
-        else
-          local distSq = distanceSqTiles(b.tileX, b.tileY, t.tileX, t.tileY)
-          if distSq > (def.radiusTiles * def.radiusTiles) then
-            b.chopTargetIndex = nil
-          else
-            -- Chop
-            t.health = t.health - def.chopRate * dt
-            if t.health <= 0 then
-              t.alive = false
-              gameState.resources.wood = (gameState.resources.wood or 0) + def.woodPerTree
-              b.chopTargetIndex = nil
-            end
-          end
-        end
-      end
-    end
-  end
-end
-
-local function generateTrees()
-  trees = {}
-  local tilesX = world.tilesX
-  local tilesY = world.tilesY
-
-  local clusterCount = 48
-  local minClusterSize, maxClusterSize = 8, 22
-  local clusterSpreadTiles = 5
-
-  local occupied = {}
-  local function key(x, y) return x .. "," .. y end
-
-  for _ = 1, clusterCount do
-    local cx = math.random(2, tilesX - 3)
-    local cy = math.random(3, tilesY - 3)
-    local clusterSize = math.random(minClusterSize, maxClusterSize)
-
-    for _ = 1, clusterSize do
-      local ox = math.random(-clusterSpreadTiles, clusterSpreadTiles)
-      local oy = math.random(-clusterSpreadTiles, clusterSpreadTiles)
-      local tx = math.max(0, math.min(tilesX - 1, cx + ox))
-      local ty = math.max(0, math.min(tilesY - 1, cy + oy))
-      local k = key(tx, ty)
-      if not occupied[k] then
-        occupied[k] = true
-        table.insert(trees, { tileX = tx, tileY = ty, alive = true, health = 3.0 })
-      end
-    end
-  end
-end
-
 function love.load()
   love.window.setTitle("City Builder - Prototype")
   love.graphics.setBackgroundColor(colors.background)
@@ -559,8 +834,12 @@ function love.update(dt)
     gameState.resources[resourceName] = current + rate * dt
   end
 
-  updateLumberyards(dt)
+  -- Workers and particles
+  updateWorkers(dt)
+  updateParticles(dt)
+  updateTreeShake(dt)
 
+  -- Edge panning with mouse
   local mx, my = love.mouse.getPosition()
   local screenW, screenH = love.graphics.getDimensions()
   local margin = 24
@@ -589,7 +868,9 @@ function love.draw()
   drawLumberyardRadii()
   drawTrees()
   drawBuildings()
+  drawWorkers()
   drawPlacementPreview()
+  drawParticles()
 
   love.graphics.pop()
 
