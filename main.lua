@@ -11,6 +11,7 @@ local particles = require('src.particles')
 local buildings = require('src.buildings')
 local workers = require('src.workers')
 local ui = require('src.ui')
+local roads = require('src.roads')
 
 -- Shorthand
 local TILE_SIZE = C.TILE_SIZE
@@ -160,6 +161,7 @@ function love.draw()
   end
   buildings.drawSelectedRadius(state)
   trees.draw(state)
+  roads.draw(state)
   buildings.drawAll(state)
   workers.draw(state)
 
@@ -170,13 +172,21 @@ function love.draw()
     love.graphics.rectangle('fill', state.camera.x, state.camera.y, screenW, screenH)
   end
 
+  -- Road preview
+  if state.ui.isPlacingRoad and state.ui.roadStartTile then
+    local sx, sy = state.ui.roadStartTile.x, state.ui.roadStartTile.y
+    local ex, ey = getMouseTile()
+    local path = roads.computePath(state, sx, sy, ex, ey)
+    roads.drawPreview(state, path)
+  end
+
   drawPlacementPreview()
   particles.draw(state.game.particles)
 
   love.graphics.pop()
 
   -- UI draw
-  ui.drawBuildButton()
+  ui.drawTopButtons(state)
   ui.drawBuildMenu(state, state.buildingDefs)
   ui.drawHUD(state)
 
@@ -205,7 +215,7 @@ function love.mousepressed(x, y, button)
     return
   end
 
-  -- Right click cancels placement or closes build menu or deselects
+  -- Right click cancels placement or closes build menu or deselects or cancels road mode
   if button == 2 then
     if state.ui.isPlacingBuilding then
       state.ui.isPlacingBuilding = false
@@ -213,6 +223,10 @@ function love.mousepressed(x, y, button)
       return
     elseif state.ui.isBuildMenuOpen then
       state.ui.isBuildMenuOpen = false
+      return
+    elseif state.ui.isPlacingRoad then
+      state.ui.isPlacingRoad = false
+      state.ui.roadStartTile = nil
       return
     else
       state.ui.selectedBuilding = nil
@@ -228,7 +242,19 @@ function love.mousepressed(x, y, button)
     if state.ui.isBuildMenuOpen then
       state.ui.isPlacingBuilding = false
       state.ui.selectedBuildingType = nil
+      state.ui.isPlacingRoad = false
+      state.ui.roadStartTile = nil
     end
+    return
+  end
+
+  -- Toggle road mode
+  if ui.isOverRoadButton(x, y) then
+    state.ui.isPlacingRoad = not state.ui.isPlacingRoad
+    state.ui.isPlacingBuilding = false
+    state.ui.selectedBuildingType = nil
+    state.ui.isBuildMenuOpen = false
+    state.ui.roadStartTile = nil
     return
   end
 
@@ -242,6 +268,21 @@ function love.mousepressed(x, y, button)
       return
     else
       state.ui.isBuildMenuOpen = false
+      return
+    end
+  end
+
+  -- Road placement start or apply
+  if state.ui.isPlacingRoad then
+    local tx, ty = getMouseTile()
+    if not state.ui.roadStartTile then
+      state.ui.roadStartTile = { x = tx, y = ty }
+      return
+    else
+      local sx, sy = state.ui.roadStartTile.x, state.ui.roadStartTile.y
+      local path = roads.computePath(state, sx, sy, tx, ty)
+      roads.placePath(state, path)
+      state.ui.roadStartTile = { x = tx, y = ty }
       return
     end
   end

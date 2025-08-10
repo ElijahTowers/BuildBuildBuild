@@ -8,6 +8,7 @@ local colors = constants.colors
 local ui = {}
 
 ui.buildButton = { x = 16, y = 16, width = 120, height = 40, label = "Build" }
+ui.roadButton = { x = 16 + 120 + 8, y = 16, width = 120, height = 40, label = "Roads" }
 
 ui.buildMenu = {
   x = 16, -- not used for drawing when centered, kept for compatibility
@@ -71,6 +72,11 @@ function ui.isOverBuildButton(mx, my)
   return utils.isPointInRect(mx, my, b.x, b.y, b.width, b.height)
 end
 
+function ui.isOverRoadButton(mx, my)
+  local b = ui.roadButton
+  return utils.isPointInRect(mx, my, b.x, b.y, b.width, b.height)
+end
+
 function ui.isOverBuildMenu(mx, my)
   local x, y, w, h = ui.getBuildMenuRect()
   return utils.isPointInRect(mx, my, x, y, w, h)
@@ -92,7 +98,8 @@ function ui.getBuildMenuOptionAt(mx, my)
   return nil
 end
 
-function ui.drawBuildButton()
+function ui.drawTopButtons(state)
+  -- Build button
   local b = ui.buildButton
   local mx, my = love.mouse.getPosition()
   local hovered = utils.isPointInRect(mx, my, b.x, b.y, b.width, b.height)
@@ -102,6 +109,17 @@ function ui.drawBuildButton()
   love.graphics.rectangle("line", b.x, b.y, b.width, b.height, 6, 6)
   love.graphics.setColor(colors.text)
   love.graphics.printf(b.label, b.x, b.y + 12, b.width, "center")
+
+  -- Road button (toggle)
+  local r = ui.roadButton
+  local hovered2 = utils.isPointInRect(mx, my, r.x, r.y, r.width, r.height)
+  local isActive = state.ui.isPlacingRoad
+  love.graphics.setColor(isActive and colors.buttonHover or (hovered2 and colors.buttonHover or colors.button))
+  love.graphics.rectangle("fill", r.x, r.y, r.width, r.height, 6, 6)
+  love.graphics.setColor(colors.uiPanelOutline)
+  love.graphics.rectangle("line", r.x, r.y, r.width, r.height, 6, 6)
+  love.graphics.setColor(colors.text)
+  love.graphics.printf(r.label, r.x, r.y + 12, r.width, "center")
 end
 
 function ui.drawBuildMenu(state, buildingDefs)
@@ -161,9 +179,9 @@ function ui.drawBuildMenu(state, buildingDefs)
 end
 
 function ui.drawHUD(state)
-  local x = ui.buildButton.x + ui.buildButton.width + 16
+  local x = ui.roadButton.x + ui.roadButton.width + 16
   local y = 16
-  local w = 320
+  local w = 380
   local h = 84
   love.graphics.setColor(colors.uiPanel)
   love.graphics.rectangle("fill", x, y, w, h, 8, 8)
@@ -186,6 +204,12 @@ function ui.drawHUD(state)
       love.graphics.setColor(colors.text)
       love.graphics.print(string.format("Radius: %d tiles, Workers: %d", state.buildingDefs.lumberyard.radiusTiles, state.buildingDefs.lumberyard.numWorkers), x + 12, y + 48)
     end
+  end
+
+  if state.ui.isPlacingRoad then
+    love.graphics.setColor(colors.text)
+    local costPer = state.buildingDefs.road.costPerTile.wood or 0
+    love.graphics.print(string.format("Road: click-drag to build, cost %d wood/tile. Right click to cancel.", costPer), x + 12, y + 30)
   end
 end
 

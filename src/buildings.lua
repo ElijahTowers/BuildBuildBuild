@@ -135,10 +135,29 @@ function buildings.drawAll(state)
     love.graphics.push()
     love.graphics.translate(cx, cy)
     love.graphics.scale(scale, scale)
+
+    -- Base body
     love.graphics.setColor(b.color)
     love.graphics.rectangle("fill", -TILE_SIZE / 2, -TILE_SIZE / 2, TILE_SIZE, TILE_SIZE, 4, 4)
     love.graphics.setColor(colors.outline)
     love.graphics.rectangle("line", -TILE_SIZE / 2, -TILE_SIZE / 2, TILE_SIZE, TILE_SIZE, 4, 4)
+
+    -- Roof (simple triangle)
+    love.graphics.setColor(0.25, 0.2, 0.18, 0.9)
+    local roofH = TILE_SIZE * 0.35
+    love.graphics.polygon('fill',
+      -TILE_SIZE / 2, -TILE_SIZE / 2,
+       TILE_SIZE / 2, -TILE_SIZE / 2,
+       0, -TILE_SIZE / 2 - roofH)
+    love.graphics.setColor(colors.outline)
+    love.graphics.polygon('line',
+      -TILE_SIZE / 2, -TILE_SIZE / 2,
+       TILE_SIZE / 2, -TILE_SIZE / 2,
+       0, -TILE_SIZE / 2 - roofH)
+
+    -- Door
+    love.graphics.setColor(0.4, 0.3, 0.2, 1)
+    love.graphics.rectangle('fill', -TILE_SIZE * 0.06, TILE_SIZE * 0.05, TILE_SIZE * 0.12, TILE_SIZE * 0.22, 2, 2)
 
     -- Building-specific visuals
     if b.type == 'lumberyard' then
@@ -157,9 +176,16 @@ function buildings.drawAll(state)
         end
       end
     elseif b.type == 'house' then
+      -- Window flicker
       local a = 0.3 + 0.2 * (0.5 + 0.5 * math.sin(t * 2.2))
       love.graphics.setColor(1.0, 0.95, 0.7, a)
       love.graphics.rectangle('fill', -TILE_SIZE * 0.15, -TILE_SIZE * 0.05, TILE_SIZE * 0.2, TILE_SIZE * 0.2, 2, 2)
+      -- Chimney and smoke
+      love.graphics.setColor(0.3, 0.3, 0.35, 1)
+      love.graphics.rectangle('fill', TILE_SIZE * 0.18, -TILE_SIZE * 0.5 - roofH + 6, 6, 10)
+      if math.random() < 0.02 then
+        particles.spawnSmokePuff(state.game.particles, cx + TILE_SIZE * 0.18, cy - TILE_SIZE * 0.5 - roofH + 6)
+      end
     end
 
     love.graphics.pop()

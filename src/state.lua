@@ -17,7 +17,9 @@ state.ui = {
   isPaused = false,
   buildMenuAlpha = 0, -- 0..1 animated alpha/scale for build menu
   previewT = 0,       -- time accumulator for placement preview pulse
-  selectedBuilding = nil -- reference to clicked building (for radius display)
+  selectedBuilding = nil, -- reference to clicked building (for radius display)
+  isPlacingRoad = false,
+  roadStartTile = nil
 }
 
 -- Resources and buildings
@@ -26,7 +28,8 @@ state.game = {
   productionRates = { wood = 0 },
   buildings = {},
   trees = {},
-  particles = {}
+  particles = {},
+  roads = {} -- map of road tiles
 }
 
 -- Building definitions and balance
@@ -43,6 +46,9 @@ state.buildingDefs = {
     woodPerTree = 6,
     numWorkers = 2,
     workerSpeed = 120 -- pixels per second
+  },
+  road = {
+    costPerTile = { wood = 1 }
   }
 }
 
@@ -58,6 +64,7 @@ function state.restart()
   state.game.buildings = {}
   state.game.trees = {}
   state.game.particles = {}
+  state.game.roads = {}
   state.game.resources = { wood = 50 }
   state.game.productionRates = { wood = 0 }
   state.ui.isBuildMenuOpen = false
@@ -67,6 +74,8 @@ function state.restart()
   state.ui.buildMenuAlpha = 0
   state.ui.previewT = 0
   state.ui.selectedBuilding = nil
+  state.ui.isPlacingRoad = false
+  state.ui.roadStartTile = nil
   state.camera.x, state.camera.y = 0, 0
 end
 

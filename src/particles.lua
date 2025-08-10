@@ -23,7 +23,8 @@ function particles.spawnLeafBurst(gameParticles, tileX, tileY)
       life = 0.8 + math.random() * 0.6,
       age = 0,
       size = 2 + math.random() * 2,
-      color = { colors.particleLeaf[1], colors.particleLeaf[2], colors.particleLeaf[3], colors.particleLeaf[4] }
+      color = { colors.particleLeaf[1], colors.particleLeaf[2], colors.particleLeaf[3], colors.particleLeaf[4] },
+      g = 60
     })
   end
 end
@@ -42,7 +43,8 @@ function particles.spawnDustBurst(gameParticles, px, py)
       life = 0.5 + math.random() * 0.4,
       age = 0,
       size = 1.5 + math.random() * 2,
-      color = { 0.7, 0.6, 0.45, 0.9 }
+      color = { 0.7, 0.6, 0.45, 0.9 },
+      g = 60
     })
   end
 end
@@ -61,7 +63,28 @@ function particles.spawnSawdust(gameParticles, px, py, dirX, dirY)
       life = 0.4 + math.random() * 0.3,
       age = 0,
       size = 1 + math.random() * 1.5,
-      color = { 0.8, 0.7, 0.5, 0.9 }
+      color = { 0.8, 0.7, 0.5, 0.9 },
+      g = 60
+    })
+  end
+end
+
+function particles.spawnSmokePuff(gameParticles, px, py)
+  for i = 1, 8 do
+    local angle = (math.random() - 0.5) * 0.8
+    local speed = 15 + math.random() * 20
+    local vx = math.cos(angle) * speed * 0.5
+    local vy = - (20 + math.random() * 25)
+    table.insert(gameParticles, {
+      x = px,
+      y = py,
+      vx = vx,
+      vy = vy,
+      life = 0.9 + math.random() * 0.5,
+      age = 0,
+      size = 2 + math.random() * 3,
+      color = { 0.7, 0.7, 0.7, 0.8 },
+      g = 20
     })
   end
 end
@@ -72,7 +95,7 @@ function particles.update(gameParticles, dt)
     p.age = p.age + dt
     p.x = p.x + p.vx * dt
     p.y = p.y + p.vy * dt
-    p.vy = p.vy + 60 * dt -- gravity
+    p.vy = p.vy + (p.g or 60) * dt
     if p.age >= p.life then
       table.remove(gameParticles, i)
     end
