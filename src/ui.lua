@@ -190,7 +190,6 @@ function ui.drawVillagersPanel(state)
   love.graphics.print(string.format('Villagers: %d / %d assigned', pop.assigned or 0, pop.total or 0), x + 12, y + 12)
   love.graphics.print(string.format('Capacity: %d', pop.capacity or 0), x + 12, y + 32)
 
-  -- List worker buildings with +/- controls
   local btns = {}
   local rowY = y + 56
   for _, b in ipairs(state.game.buildings) do
@@ -200,7 +199,6 @@ function ui.drawVillagersPanel(state)
       love.graphics.setColor(colors.text)
       love.graphics.print(string.format('%s (%d/%d)', name, b.assigned or 0, maxSlots), x + 12, rowY)
       local btnW, btnH = 28, 24
-      -- minus on the left, plus on the right
       local remX, remY = x + w - 76, rowY - 4
       local addX, addY = x + w - 40, rowY - 4
       love.graphics.setColor(colors.button)
@@ -220,6 +218,89 @@ function ui.drawVillagersPanel(state)
     end
   end
   state.ui._villagersPanelButtons = btns
+end
+
+-- Minimap (top-right). Shows roads, trees, buildings, and camera viewport.
+function ui.drawMiniMap(state)
+  local TILE = constants.TILE_SIZE
+  local world = state.world
+  if world.tilesX <= 0 or world.tilesY <= 0 then return end
+
+  local padding = 16
+  local screenW, screenH = love.graphics.getDimensions()
+  local desiredW = 180
+  local scale = desiredW / world.tilesX
+  local mapW = desiredW
+  local mapH = world.tilesY * scale
+
+  -- Place at top-right; if villagers panel open, place below it
+  local yOffset = 16
+  if state.ui.isVillagersPanelOpen then
+    yOffset = yOffset + 140 + 8 -- villagers panel height + gap
+  end
+  local x = screenW - padding - mapW
+  local y = yOffset
+
+  -- Store for click handling
+  state.ui._miniMap = { x = x, y = y, w = mapW, h = mapH, scale = scale }
+
+  -- Background panel
+  love.graphics.setColor(colors.uiPanel)
+  love.graphics.rectangle('fill', x - 8, y - 8, mapW + 16, mapH + 16, 8, 8)
+  love.graphics.setColor(colors.uiPanelOutline)
+  love.graphics.rectangle('line', x - 8, y - 8, mapW + 16, mapH + 16, 8, 8)
+
+  -- Draw roads
+  if state.game.roads then
+    love.graphics.setColor(0.5, 0.5, 0.52, 0.9)
+    for _, rd in pairs(state.game.roads) do
+      local rx = x + rd.tileX * scale
+      local ry = y + rd.tileY * scale
+      love.graphics.rectangle('fill', rx, ry, scale, scale)
+    end
+  end
+
+  -- Draw trees
+  love.graphics.setColor(colors.treeFill)
+  for _, t in ipairs(state.game.trees) do
+    if t.alive then
+      local tx = x + t.tileX * scale
+      local ty = y + t.tileY * scale
+      love.graphics.rectangle('fill', tx + scale * 0.25, ty + scale * 0.25, math.max(1, scale * 0.5), math.max(1, scale * 0.5))
+    end
+  end
+
+  -- Draw buildings
+  for _, b in ipairs(state.game.buildings) do
+    local bx = x + b.tileX * scale
+    local by = y + b.tileY * scale
+    love.graphics.setColor(b.color[1], b.color[2], b.color[3], 1)
+    love.graphics.rectangle('fill', bx, by, scale, scale)
+    love.graphics.setColor(colors.outline)
+    love.graphics.rectangle('line', bx, by, scale, scale)
+  end
+
+  -- Draw villagers
+  if state.game.villagers then
+    love.graphics.setColor(colors.worker)
+    for _, v in ipairs(state.game.villagers) do
+      local vx = x + (v.x / TILE) * scale
+      local vy = y + (v.y / TILE) * scale
+      love.graphics.rectangle('fill', vx - 1, vy - 1, 2, 2)
+    end
+  end
+
+  -- Camera viewport rectangle
+  local camTileX = state.camera.x / TILE
+  local camTileY = state.camera.y / TILE
+  local viewTilesW = screenW / TILE
+  local viewTilesH = screenH / TILE
+  local vx = x + camTileX * scale
+  local vy = y + camTileY * scale
+  local vw = viewTilesW * scale
+  local vh = viewTilesH * scale
+  love.graphics.setColor(1, 1, 1, 0.8)
+  love.graphics.rectangle('line', vx, vy, vw, vh)
 end
 
 function ui.drawHUD(state)

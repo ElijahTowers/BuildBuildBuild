@@ -250,6 +250,7 @@ function love.draw()
   ui.drawTopButtons(state)
   ui.drawBuildMenu(state, state.buildingDefs)
   ui.drawHUD(state)
+  ui.drawMiniMap(state)
 
   local sel = state.ui.selectedBuilding
   if sel and sel.type == 'lumberyard' then
@@ -415,6 +416,19 @@ function love.mousepressed(x, y, button)
         return
       end
     end
+  end
+
+  -- Minimap click-to-navigate
+  local mm = state.ui._miniMap
+  if mm and x >= mm.x and x <= mm.x + mm.w and y >= mm.y and y <= mm.y + mm.h then
+    local TILE = C.TILE_SIZE
+    local screenW, screenH = love.graphics.getDimensions()
+    local worldX = (x - mm.x) / mm.scale * TILE
+    local worldY = (y - mm.y) / mm.scale * TILE
+    -- center camera so clicked point is centered
+    state.camera.x = utils.clamp(worldX - screenW / 2, 0, state.world.tilesX * TILE - screenW)
+    state.camera.y = utils.clamp(worldY - screenH / 2, 0, state.world.tilesY * TILE - screenH)
+    return
   end
 
   if state.ui.isPlacingRoad then
