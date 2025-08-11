@@ -19,7 +19,8 @@ ui.buildMenu = {
   optionHeight = 48,
   options = {
     { key = "house", label = "House", color = { 0.9, 0.6, 0.2, 1.0 } },
-    { key = "lumberyard", label = "Lumberyard", color = { 0.3, 0.7, 0.3, 1.0 } }
+    { key = "lumberyard", label = "Lumberyard", color = { 0.3, 0.7, 0.3, 1.0 } },
+    { key = "warehouse", label = "Warehouse", color = { 0.6, 0.6, 0.7, 1.0 } }
   }
 }
 
@@ -124,6 +125,7 @@ end
 function ui.drawBuildMenu(state, buildingDefs)
   if not state.ui.isBuildMenuOpen and state.ui.buildMenuAlpha <= 0 then return end
   ui.computeBuildMenuSize(buildingDefs)
+  ui.computeBuildMenuHeight()
   local target = state.ui.isBuildMenuOpen and 1 or 0
   state.ui.buildMenuAlpha = state.ui.buildMenuAlpha + (target - state.ui.buildMenuAlpha) * 0.2
   local a = state.ui.buildMenuAlpha
@@ -314,8 +316,15 @@ function ui.drawHUD(state)
   love.graphics.rectangle("line", x, y, w, h, 8, 8)
 
   love.graphics.setColor(colors.text)
-  local wood = math.floor(state.game.resources.wood + 0.5)
-  love.graphics.print(string.format("Wood: %d", wood), x + 12, y + 12)
+  local baseWood = math.floor(state.game.resources.wood + 0.5)
+  local storedWood = 0
+  for _, b in ipairs(state.game.buildings) do
+    if b.type == 'warehouse' and b.storage and b.storage.wood then
+      storedWood = storedWood + b.storage.wood
+    end
+  end
+  local totalWood = baseWood + storedWood
+  love.graphics.print(string.format("Wood: %d", totalWood), x + 12, y + 12)
 
   local hours = math.floor(state.time.normalized * 24) % 24
   local minutes = math.floor((state.time.normalized * 24 - hours) * 60)

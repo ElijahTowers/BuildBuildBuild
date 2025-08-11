@@ -61,6 +61,10 @@ state.buildingDefs = {
     numWorkers = 2,
     workerSpeed = 120 -- pixels per second
   },
+  warehouse = {
+    cost = { wood = 20 },
+    capacity = { wood = 200 }
+  },
   road = {
     costPerTile = { wood = 1 }
   }

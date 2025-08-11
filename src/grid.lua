@@ -11,10 +11,12 @@ function grid.draw(state)
   local camera = state.camera
   local world = state.world
   local screenW, screenH = love.graphics.getDimensions()
+  local visibleW = screenW / (camera.scale or 1)
+  local visibleH = screenH / (camera.scale or 1)
   local startTileX = math.max(0, math.floor(camera.x / TILE_SIZE))
-  local endTileX = math.min(world.tilesX, math.ceil((camera.x + screenW) / TILE_SIZE))
+  local endTileX = math.min(world.tilesX, math.ceil((camera.x + visibleW) / TILE_SIZE))
   local startTileY = math.max(0, math.floor(camera.y / TILE_SIZE))
-  local endTileY = math.min(world.tilesY, math.ceil((camera.y + screenH) / TILE_SIZE))
+  local endTileY = math.min(world.tilesY, math.ceil((camera.y + visibleH) / TILE_SIZE))
 
   love.graphics.setColor(colors.grid)
   for tx = startTileX, endTileX do

@@ -172,4 +172,17 @@ function trees.draw(state)
   end
 end
 
+function trees.removeAt(state, tileX, tileY)
+  for _, t in ipairs(state.game.trees) do
+    if t.alive and t.tileX == tileX and t.tileY == tileY then
+      t.alive = false
+      t.reserved = false
+      t.beingChopped = false
+      t.stumpTime = 0
+      return true
+    end
+  end
+  return false
+end
+
 return trees 

@@ -48,6 +48,21 @@ local function findNearestHouse(state, x, y)
   return best
 end
 
+local function findNearestWarehouse(state, x, y)
+  local best, bestDistSq
+  bestDistSq = math.huge
+  for _, b in ipairs(state.game.buildings) do
+    if b.type == 'warehouse' then
+      local d = (b.tileX - x) ^ 2 + (b.tileY - y) ^ 2
+      if d < bestDistSq then
+        bestDistSq = d
+        best = b
+      end
+    end
+  end
+  return best
+end
+
 -- Persistent villager creation
 local function createVillager(state, homeB, workB, startX, startY)
   local v = {
@@ -111,7 +126,8 @@ local function goTo(w, px, py, speed, dt)
   local dx = px - w.x
   local dy = py - w.y
   local dist = math.sqrt(dx * dx + dy * dy)
-  if dist < 2 then
+  local arriveDist = math.max(2, speed * dt * 0.6)
+  if dist <= arriveDist then
     w.x = px
     w.y = py
     return true
@@ -292,14 +308,29 @@ function workers.update(state, dt)
             end
 
           elseif w.state == "returning" then
-            local homePx = b.tileX * TILE + TILE / 2
-            local homePy = b.tileY * TILE + TILE / 2
-            if goTo(w, homePx, homePy, def.workerSpeed, dt) then
+            -- Deliver to nearest warehouse
+            local wh = findNearestWarehouse(state, math.floor(w.x / TILE), math.floor(w.y / TILE))
+            local targetPx, targetPy
+            if wh then
+              targetPx = wh.tileX * TILE + TILE / 2
+              targetPy = wh.tileY * TILE + TILE / 2
+            else
+              -- fallback to workplace
+              targetPx = b.tileX * TILE + TILE / 2
+              targetPy = b.tileY * TILE + TILE / 2
+            end
+            if goTo(w, targetPx, targetPy, def.workerSpeed, dt) then
               if w.carryWood then
-                state.game.resources.wood = (state.game.resources.wood or 0) + def.woodPerTree
+                if wh then
+                  wh.storage = wh.storage or {}
+                  wh.storage.wood = (wh.storage.wood or 0) + def.woodPerTree
+                else
+                  state.game.resources.wood = (state.game.resources.wood or 0) + def.woodPerTree
+                end
                 w.carryWood = false
               end
-              w.state = "idle"
+              -- Immediately head back to work area during the day
+              w.state = 'toWork'
               w.targetTreeIndex = nil
               w.targetTileX, w.targetTileY = nil, nil
             end

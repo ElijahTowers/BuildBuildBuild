@@ -13,19 +13,40 @@ local buildings = {}
 function buildings.canAfford(state, buildingType)
   local def = state.buildingDefs[buildingType]
   if not def or not def.cost then return true end
-  for resourceName, amount in pairs(def.cost) do
-    local current = state.game.resources[resourceName] or 0
-    if current < amount then return false end
+  local neededWood = def.cost.wood or 0
+  if neededWood <= 0 then return true end
+  local base = state.game.resources.wood or 0
+  local stored = 0
+  for _, b in ipairs(state.game.buildings) do
+    if b.type == 'warehouse' and b.storage and b.storage.wood then
+      stored = stored + b.storage.wood
+    end
   end
-  return true
+  return (base + stored) >= neededWood
 end
 
 function buildings.payCost(state, buildingType)
   local def = state.buildingDefs[buildingType]
   if not def or not def.cost then return end
-  for resourceName, amount in pairs(def.cost) do
-    local current = state.game.resources[resourceName] or 0
-    state.game.resources[resourceName] = math.max(0, current - amount)
+  local neededWood = def.cost.wood or 0
+  if neededWood > 0 then
+    local base = state.game.resources.wood or 0
+    local takeFromBase = math.min(base, neededWood)
+    state.game.resources.wood = base - takeFromBase
+    local remaining = neededWood - takeFromBase
+    if remaining > 0 then
+      -- deduct from warehouses in any order
+      for _, b in ipairs(state.game.buildings) do
+        if remaining <= 0 then break end
+        if b.type == 'warehouse' then
+          b.storage = b.storage or {}
+          local w = b.storage.wood or 0
+          local take = math.min(w, remaining)
+          b.storage.wood = w - take
+          remaining = remaining - take
+        end
+      end
+    end
   end
 end
 
@@ -39,18 +60,20 @@ function buildings.canPlaceAt(state, tileX, tileY)
       return false
     end
   end
-  if trees.getAt(state, tileX, tileY) then
-    return false
-  end
+  -- allow building on trees by removing them at placement time (preview still red if blocked by building)
   return true
 end
 
 function buildings.place(state, buildingType, tileX, tileY)
+  -- remove tree if present
+  trees.removeAt(state, tileX, tileY)
   local color
   if buildingType == "house" then
     color = { 0.9, 0.6, 0.2, 1.0 }
   elseif buildingType == "lumberyard" then
     color = { 0.3, 0.7, 0.3, 1.0 }
+  elseif buildingType == "warehouse" then
+    color = { 0.6, 0.6, 0.7, 1.0 }
   else
     color = { 0.7, 0.7, 0.7, 1.0 }
   end
@@ -60,8 +83,9 @@ function buildings.place(state, buildingType, tileX, tileY)
     tileY = tileY,
     color = color,
     anim = { appear = 0, t = 0, sawAngle = 0, active = false },
-    assigned = 0, -- number of assigned workers for worker buildings
-    currentResidents = 0 -- for houses: how many villagers live here
+    assigned = 0,
+    currentResidents = 0,
+    storage = { wood = 0 } -- for warehouses
   }
   table.insert(state.game.buildings, newB)
 
@@ -150,11 +174,9 @@ function buildings.drawAll(state)
     local cx = px + TILE_SIZE / 2
     local cy = py + TILE_SIZE / 2
 
-    -- shadow
     love.graphics.setColor(0, 0, 0, 0.22)
     love.graphics.ellipse('fill', cx, py + TILE_SIZE * 0.9, TILE_SIZE * 0.35, TILE_SIZE * 0.18)
 
-    -- Compute animated scale: appear tween and subtle breathing
     local appear = (b.anim and b.anim.appear) or 1
     local t = (b.anim and b.anim.t) or 0
     local breath = 1 + 0.02 * math.sin(t * 3.0)
@@ -164,31 +186,19 @@ function buildings.drawAll(state)
     love.graphics.translate(cx, cy)
     love.graphics.scale(scale, scale)
 
-    -- Base body
     love.graphics.setColor(b.color)
     love.graphics.rectangle("fill", -TILE_SIZE / 2, -TILE_SIZE / 2, TILE_SIZE, TILE_SIZE, 4, 4)
     love.graphics.setColor(colors.outline)
     love.graphics.rectangle("line", -TILE_SIZE / 2, -TILE_SIZE / 2, TILE_SIZE, TILE_SIZE, 4, 4)
 
-    -- Roof (simple triangle)
-    love.graphics.setColor(0.25, 0.2, 0.18, 0.9)
-    local roofH = TILE_SIZE * 0.35
-    love.graphics.polygon('fill',
-      -TILE_SIZE / 2, -TILE_SIZE / 2,
-       TILE_SIZE / 2, -TILE_SIZE / 2,
-       0, -TILE_SIZE / 2 - roofH)
-    love.graphics.setColor(colors.outline)
-    love.graphics.polygon('line',
-      -TILE_SIZE / 2, -TILE_SIZE / 2,
-       TILE_SIZE / 2, -TILE_SIZE / 2,
-       0, -TILE_SIZE / 2 - roofH)
-
-    -- Door
-    love.graphics.setColor(0.4, 0.3, 0.2, 1)
-    love.graphics.rectangle('fill', -TILE_SIZE * 0.06, TILE_SIZE * 0.05, TILE_SIZE * 0.12, TILE_SIZE * 0.22, 2, 2)
-
-    -- Building-specific visuals
-    if b.type == 'lumberyard' then
+    if b.type == 'warehouse' then
+      -- warehouse door
+      love.graphics.setColor(0.45, 0.4, 0.35, 1)
+      love.graphics.rectangle('fill', -TILE_SIZE * 0.18, TILE_SIZE * 0.05, TILE_SIZE * 0.36, TILE_SIZE * 0.28, 2, 2)
+      -- simple crates indicator
+      love.graphics.setColor(0.65, 0.5, 0.3, 1)
+      love.graphics.rectangle('fill', -TILE_SIZE * 0.12, -TILE_SIZE * 0.1, TILE_SIZE * 0.24, TILE_SIZE * 0.12)
+    elseif b.type == 'lumberyard' then
       if b.anim and b.anim.active then
         local r = 6
         local angle = (b.anim.sawAngle or 0)
@@ -204,16 +214,11 @@ function buildings.drawAll(state)
         end
       end
     elseif b.type == 'house' then
-      -- Window flicker
       local a = 0.3 + 0.2 * (0.5 + 0.5 * math.sin(t * 2.2))
       love.graphics.setColor(1.0, 0.95, 0.7, a)
       love.graphics.rectangle('fill', -TILE_SIZE * 0.15, -TILE_SIZE * 0.05, TILE_SIZE * 0.2, TILE_SIZE * 0.2, 2, 2)
-      -- Chimney and smoke
       love.graphics.setColor(0.3, 0.3, 0.35, 1)
-      love.graphics.rectangle('fill', TILE_SIZE * 0.18, -TILE_SIZE * 0.5 - roofH + 6, 6, 10)
-      if math.random() < 0.02 then
-        particles.spawnSmokePuff(state.game.particles, cx + TILE_SIZE * 0.18, cy - TILE_SIZE * 0.5 - roofH + 6)
-      end
+      love.graphics.rectangle('fill', TILE_SIZE * 0.18, -TILE_SIZE * 0.5 - TILE_SIZE * 0.35 + 6, 6, 10)
     end
 
     love.graphics.pop()

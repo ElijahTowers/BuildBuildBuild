@@ -228,8 +228,10 @@ function love.draw()
 
   if state.ui.isPlacingBuilding and state.ui.selectedBuildingType then
     local screenW, screenH = love.graphics.getDimensions()
+    local visibleW = screenW / (state.camera.scale or 1)
+    local visibleH = screenH / (state.camera.scale or 1)
     love.graphics.setColor(0, 0, 0, 0.35)
-    love.graphics.rectangle('fill', state.camera.x, state.camera.y, screenW, screenH)
+    love.graphics.rectangle('fill', state.camera.x, state.camera.y, visibleW, visibleH)
   end
 
   if state.ui.isPlacingRoad and state.ui.roadStartTile then
