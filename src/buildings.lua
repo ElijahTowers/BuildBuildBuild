@@ -6,6 +6,7 @@ local trees = require('src.trees')
 local utils = require('src.utils')
 local particles = require('src.particles')
 local colors = constants.colors
+local workers = require('src.workers')
 
 local buildings = {}
 
@@ -59,7 +60,8 @@ function buildings.place(state, buildingType, tileX, tileY)
     tileY = tileY,
     color = color,
     anim = { appear = 0, t = 0, sawAngle = 0, active = false },
-    assigned = 0 -- number of assigned workers for worker buildings
+    assigned = 0, -- number of assigned workers for worker buildings
+    currentResidents = 0 -- for houses: how many villagers live here
   }
   table.insert(state.game.buildings, newB)
 
@@ -108,6 +110,8 @@ function buildings.assignOne(state, b)
   if not buildings.canAssign(state, b) then return false end
   b.assigned = (b.assigned or 0) + 1
   state.game.population.assigned = (state.game.population.assigned or 0) + 1
+  -- Spawn a worker who walks from home to workplace
+  workers.spawnAssignedWorker(state, b)
   return true
 end
 
