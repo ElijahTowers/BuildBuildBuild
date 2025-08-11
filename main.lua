@@ -20,8 +20,8 @@ local colors = C.colors
 -- Converts mouse screen position to world tile coordinates
 local function getMouseTile()
   local mx, my = love.mouse.getX(), love.mouse.getY()
-  local worldX = state.camera.x + mx
-  local worldY = state.camera.y + my
+  local worldX = state.camera.x + mx / state.camera.scale
+  local worldY = state.camera.y + my / state.camera.scale
   local tileX = math.floor(worldX / TILE_SIZE)
   local tileY = math.floor(worldY / TILE_SIZE)
   return tileX, tileY
@@ -166,11 +166,11 @@ function love.update(dt)
   if my <= margin then dy = -1 end
   if my >= screenH - margin then dy = 1 end
 
-  state.camera.x = state.camera.x + dx * state.camera.panSpeed * dt
-  state.camera.y = state.camera.y + dy * state.camera.panSpeed * dt
+  state.camera.x = state.camera.x + dx * state.camera.panSpeed * dt / state.camera.scale
+  state.camera.y = state.camera.y + dy * state.camera.panSpeed * dt / state.camera.scale
 
-  local maxCamX = math.max(0, state.world.tilesX * TILE_SIZE - screenW)
-  local maxCamY = math.max(0, state.world.tilesY * TILE_SIZE - screenH)
+  local maxCamX = math.max(0, state.world.tilesX * TILE_SIZE - screenW / state.camera.scale)
+  local maxCamY = math.max(0, state.world.tilesY * TILE_SIZE - screenH / state.camera.scale)
   state.camera.x = utils.clamp(state.camera.x, 0, maxCamX)
   state.camera.y = utils.clamp(state.camera.y, 0, maxCamY)
 end
@@ -214,6 +214,7 @@ end
 function love.draw()
   -- World space draw
   love.graphics.push()
+  love.graphics.scale(state.camera.scale, state.camera.scale)
   love.graphics.translate(-state.camera.x, -state.camera.y)
 
   if state.ui.isPlacingBuilding and state.ui.selectedBuildingType then
@@ -425,9 +426,8 @@ function love.mousepressed(x, y, button)
     local screenW, screenH = love.graphics.getDimensions()
     local worldX = (x - mm.x) / mm.scale * TILE
     local worldY = (y - mm.y) / mm.scale * TILE
-    -- center camera so clicked point is centered
-    state.camera.x = utils.clamp(worldX - screenW / 2, 0, state.world.tilesX * TILE - screenW)
-    state.camera.y = utils.clamp(worldY - screenH / 2, 0, state.world.tilesY * TILE - screenH)
+    state.camera.x = utils.clamp(worldX - (screenW / state.camera.scale) / 2, 0, state.world.tilesX * TILE - (screenW / state.camera.scale))
+    state.camera.y = utils.clamp(worldY - (screenH / state.camera.scale) / 2, 0, state.world.tilesY * TILE - (screenH / state.camera.scale))
     return
   end
 
@@ -478,4 +478,26 @@ function love.keypressed(key)
     state.ui.isPaused = not state.ui.isPaused
     return
   end
+end
+
+function love.wheelmoved(dx, dy)
+  if dy == 0 then return end
+  local oldScale = state.camera.scale
+  local newScale = utils.clamp(oldScale * (1 + dy * 0.1), state.camera.minScale, state.camera.maxScale)
+  if math.abs(newScale - oldScale) < 1e-4 then return end
+
+  -- Zoom around mouse position
+  local mx, my = love.mouse.getPosition()
+  local preWorldX = state.camera.x + mx / oldScale
+  local preWorldY = state.camera.y + my / oldScale
+  state.camera.scale = newScale
+  state.camera.x = preWorldX - mx / newScale
+  state.camera.y = preWorldY - my / newScale
+
+  -- Clamp after zoom
+  local screenW, screenH = love.graphics.getDimensions()
+  local maxCamX = math.max(0, state.world.tilesX * TILE_SIZE - screenW / state.camera.scale)
+  local maxCamY = math.max(0, state.world.tilesY * TILE_SIZE - screenH / state.camera.scale)
+  state.camera.x = utils.clamp(state.camera.x, 0, maxCamX)
+  state.camera.y = utils.clamp(state.camera.y, 0, maxCamY)
 end 

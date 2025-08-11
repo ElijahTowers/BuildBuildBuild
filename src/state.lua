@@ -6,7 +6,7 @@ local constants = require('src.constants')
 local state = {}
 
 -- Camera and world limits
-state.camera = { x = 0, y = 0, panSpeed = 700 }
+state.camera = { x = 0, y = 0, panSpeed = 700, scale = 1.0, minScale = 0.5, maxScale = 2.5 }
 state.world = { tilesX = 0, tilesY = 0 }
 
 -- Time of day

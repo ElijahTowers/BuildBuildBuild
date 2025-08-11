@@ -293,8 +293,8 @@ function ui.drawMiniMap(state)
   -- Camera viewport rectangle
   local camTileX = state.camera.x / TILE
   local camTileY = state.camera.y / TILE
-  local viewTilesW = screenW / TILE
-  local viewTilesH = screenH / TILE
+  local viewTilesW = (screenW / state.camera.scale) / TILE
+  local viewTilesH = (screenH / state.camera.scale) / TILE
   local vx = x + camTileX * scale
   local vy = y + camTileY * scale
   local vw = viewTilesW * scale
@@ -315,8 +315,7 @@ function ui.drawHUD(state)
 
   love.graphics.setColor(colors.text)
   local wood = math.floor(state.game.resources.wood + 0.5)
-  local woodRate = state.game.productionRates.wood or 0
-  love.graphics.print(string.format("Wood: %d  (+%.1f/s passive)", wood, woodRate), x + 12, y + 12)
+  love.graphics.print(string.format("Wood: %d", wood), x + 12, y + 12)
 
   local hours = math.floor(state.time.normalized * 24) % 24
   local minutes = math.floor((state.time.normalized * 24 - hours) * 60)
