@@ -20,7 +20,8 @@ ui.buildMenu = {
   options = {
     { key = "house", label = "House", color = { 0.9, 0.6, 0.2, 1.0 } },
     { key = "lumberyard", label = "Lumberyard", color = { 0.3, 0.7, 0.3, 1.0 } },
-    { key = "warehouse", label = "Warehouse", color = { 0.6, 0.6, 0.7, 1.0 } }
+    { key = "warehouse", label = "Warehouse", color = { 0.6, 0.6, 0.7, 1.0 } },
+    { key = "builder", label = "Builders Workplace", color = { 0.7, 0.5, 0.3, 1.0 } }
   }
 }
 
@@ -195,9 +196,9 @@ function ui.drawVillagersPanel(state)
   local btns = {}
   local rowY = y + 56
   for _, b in ipairs(state.game.buildings) do
-    if b.type == 'lumberyard' then
-      local name = 'Lumberyard'
-      local maxSlots = state.buildingDefs.lumberyard.numWorkers or 0
+    if b.type == 'lumberyard' or b.type == 'builder' then
+      local name = (b.type == 'lumberyard') and 'Lumberyard' or 'Builders Workplace'
+      local maxSlots = (b.type == 'lumberyard') and (state.buildingDefs.lumberyard.numWorkers or 0) or (state.buildingDefs.builder.numWorkers or 0)
       love.graphics.setColor(colors.text)
       love.graphics.print(string.format('%s (%d/%d)', name, b.assigned or 0, maxSlots), x + 12, rowY)
       local btnW, btnH = 28, 24
@@ -215,7 +216,7 @@ function ui.drawVillagersPanel(state)
       love.graphics.rectangle('line', addX, addY, btnW, btnH, 6, 6)
       love.graphics.setColor(colors.text)
       love.graphics.printf('+', addX, addY + 4, btnW, 'center')
-      table.insert(btns, { type = 'lumberyard', b = b, add = { x = addX, y = addY, w = btnW, h = btnH }, rem = { x = remX, y = remY, w = btnW, h = btnH } })
+      table.insert(btns, { type = b.type, b = b, add = { x = addX, y = addY, w = btnW, h = btnH }, rem = { x = remX, y = remY, w = btnW, h = btnH } })
       rowY = rowY + 28
     end
   end

@@ -50,7 +50,7 @@ local function drawPlacementPreview()
 
   local isValid = buildings.canPlaceAt(state, tileX, tileY)
     and not isOverUI(love.mouse.getX(), love.mouse.getY())
-    and buildings.canAfford(state, state.ui.selectedBuildingType)
+    and (state.ui._isFreeInitialBuilder or buildings.canAfford(state, state.ui.selectedBuildingType))
 
   -- Show lumberyard radius while previewing
   if state.ui.selectedBuildingType == 'lumberyard' then
@@ -119,6 +119,11 @@ function love.load()
   -- Start at beginning of the day (around sunrise ~06:00)
   state.time.t = state.time.dayLength * 0.25
   state.time.normalized = state.time.t / state.time.dayLength
+
+  -- Start with free builder placement preview
+  state.ui.isPlacingBuilding = true
+  state.ui.selectedBuildingType = 'builder'
+  state.ui._isFreeInitialBuilder = true
 end
 
 function love.update(dt)
@@ -131,8 +136,11 @@ function love.update(dt)
   else
     if isDay ~= state.time.lastIsDay then
       if isDay then
-        state.time.speed = 1
+        -- restore pre-night speed
+        state.time.speed = state.time.preNightSpeed or 1
       else
+        -- entering night: remember current speed then switch to 8x
+        state.time.preNightSpeed = state.time.speed or 1
         state.time.speed = 8
       end
       state.time.lastIsDay = isDay
@@ -256,21 +264,21 @@ function love.draw()
   ui.drawMiniMap(state)
 
   local sel = state.ui.selectedBuilding
-  if sel and sel.type == 'lumberyard' then
+  if sel and (sel.type == 'lumberyard' or sel.type == 'builder') then
     local mx, my = 16, love.graphics.getHeight() - 90
-    local panelW, panelH = 320, 70
+    local panelW, panelH = 360, 70
     love.graphics.setColor(colors.uiPanel)
     love.graphics.rectangle('fill', mx, my, panelW, panelH, 8, 8)
     love.graphics.setColor(colors.uiPanelOutline)
     love.graphics.rectangle('line', mx, my, panelW, panelH, 8, 8)
 
     love.graphics.setColor(colors.text)
-    local maxSlots = state.buildingDefs.lumberyard.numWorkers or 0
-    love.graphics.print(string.format('Lumberyard workers: %d / %d', sel.assigned or 0, maxSlots), mx + 12, my + 12)
+    local maxSlots = (sel.type == 'lumberyard') and (state.buildingDefs.lumberyard.numWorkers or 0) or (state.buildingDefs.builder.numWorkers or 0)
+    local label = (sel.type == 'lumberyard') and 'Lumberyard workers' or 'Builder workers'
+    love.graphics.print(string.format('%s: %d / %d', label, sel.assigned or 0, maxSlots), mx + 12, my + 12)
     love.graphics.print(string.format('Population: %d total, %d assigned', state.game.population.total or 0, state.game.population.assigned or 0), mx + 12, my + 30)
 
     local btnW, btnH = 32, 28
-    -- minus on the left, plus on the right
     local remX, remY = mx + panelW - 80, my + 12
     local addX, addY = mx + panelW - 40, my + 12
 
@@ -283,7 +291,6 @@ function love.draw()
       love.graphics.printf(label, x, y + 6, btnW, 'center')
     end
 
-    -- draw minus then plus
     drawBtn(remX, remY, '-')
     drawBtn(addX, addY, '+')
 
@@ -319,6 +326,7 @@ function love.mousepressed(x, y, button)
     if state.ui.isPlacingBuilding then
       state.ui.isPlacingBuilding = false
       state.ui.selectedBuildingType = nil
+      state.ui._isFreeInitialBuilder = nil
       return
     elseif state.ui.isBuildMenuOpen then
       state.ui.isBuildMenuOpen = false
@@ -367,23 +375,24 @@ function love.mousepressed(x, y, button)
     return
   end
 
-  if state.ui.isBuildMenuOpen then
-    local option = ui.getBuildMenuOptionAt(x, y)
-    if option then
-      state.ui.selectedBuildingType = option.key
-      state.ui.isPlacingBuilding = true
-      state.ui.isBuildMenuOpen = false
-      return
-    else
-      state.ui.isBuildMenuOpen = false
-      return
+     if state.ui.isBuildMenuOpen then
+      local option = ui.getBuildMenuOptionAt(x, y)
+      if option then
+        state.ui.selectedBuildingType = option.key
+        state.ui.isPlacingBuilding = true
+        state.ui.isBuildMenuOpen = false
+        state.ui._isFreeInitialBuilder = nil
+        return
+      else
+        state.ui.isBuildMenuOpen = false
+        return
+      end
     end
-  end
 
-  -- Local staffing buttons when a lumberyard is selected
+  -- Local staffing buttons when a worker building is selected
   do
     local sel = state.ui.selectedBuilding
-    if sel and sel.type == 'lumberyard' then
+    if sel and (sel.type == 'lumberyard' or sel.type == 'builder') then
       local add = sel._assignBtn
       local rem = sel._unassignBtn
       if add and x >= add.x and x <= add.x + add.w and y >= add.y and y <= add.y + add.h then
@@ -458,11 +467,18 @@ function love.mousepressed(x, y, button)
     local tileX, tileY = getMouseTile()
     if not isOverUI(x, y)
       and buildings.canPlaceAt(state, tileX, tileY)
-      and buildings.canAfford(state, state.ui.selectedBuildingType) then
-      buildings.payCost(state, state.ui.selectedBuildingType)
+      and (state.ui._isFreeInitialBuilder or buildings.canAfford(state, state.ui.selectedBuildingType)) then
+      if not state.ui._isFreeInitialBuilder then
+        buildings.payCost(state, state.ui.selectedBuildingType)
+      end
       local newB = buildings.place(state, state.ui.selectedBuildingType, tileX, tileY)
-      if newB.type == 'lumberyard' then
-        -- workers spawn as assigned when user assigns
+      if state.ui._isFreeInitialBuilder and newB and newB.type == 'builder' then
+        -- Instantly complete the initial builder and grant residents (capacity was added on placement)
+        newB.construction.progress = newB.construction.required
+        newB.construction.complete = true
+        local res = state.buildingDefs.builder.residents or 0
+        state.game.population.total = (state.game.population.total or 0) + res
+        state.ui._isFreeInitialBuilder = nil
       end
       state.ui.isPlacingBuilding = false
       state.ui.selectedBuildingType = nil
@@ -477,7 +493,96 @@ function love.keypressed(key)
       state.ui.isBuildMenuOpen = false
       return
     end
+    if state.ui.isPlacingBuilding then
+      state.ui.isPlacingBuilding = false
+      state.ui.selectedBuildingType = nil
+      return
+    end
     state.ui.isPaused = not state.ui.isPaused
+    return
+  end
+
+  if key == 'b' then
+    state.ui.isBuildMenuOpen = not state.ui.isBuildMenuOpen
+    state.ui.isPlacingRoad = false
+    state.ui.roadStartTile = nil
+    return
+  end
+
+  if key == 'r' then
+    state.ui.isPlacingRoad = not state.ui.isPlacingRoad
+    state.ui.isBuildMenuOpen = false
+    state.ui.isPlacingBuilding = false
+    state.ui.selectedBuildingType = nil
+    return
+  end
+
+  if key == 'v' then
+    state.ui.isVillagersPanelOpen = not state.ui.isVillagersPanelOpen
+    return
+  end
+
+  if key == 'p' then
+    state.ui.isPaused = not state.ui.isPaused
+    return
+  end
+
+  if key == '1' then state.time.speed = 1; return end
+  if key == '2' then state.time.speed = 2; return end
+  if key == '3' then state.time.speed = 4; return end
+  if key == '4' then state.time.speed = 8; return end
+
+  if key == '=' or key == '+' then
+    love.wheelmoved(0, 1)
+    return
+  end
+  if key == '-' then
+    love.wheelmoved(0, -1)
+    return
+  end
+  if key == '0' then
+    state.camera.scale = 1
+    local screenW, screenH = love.graphics.getDimensions()
+    local maxCamX = math.max(0, state.world.tilesX * TILE_SIZE - screenW / state.camera.scale)
+    local maxCamY = math.max(0, state.world.tilesY * TILE_SIZE - screenH / state.camera.scale)
+    state.camera.x = utils.clamp(state.camera.x, 0, maxCamX)
+    state.camera.y = utils.clamp(state.camera.y, 0, maxCamY)
+    return
+  end
+
+  if key == 'g' then
+    state.ui.forceGrid = not state.ui.forceGrid
+    return
+  end
+  if key == 'm' then
+    state.ui.showMinimap = not state.ui.showMinimap
+    return
+  end
+
+  if key == 'h' or key == 'l' or key == 'w' then
+    state.ui.isBuildMenuOpen = false
+    state.ui.isPlacingBuilding = true
+    local map = { h = 'house', l = 'lumberyard', w = 'warehouse' }
+    state.ui.selectedBuildingType = map[key]
+    return
+  end
+
+  if key == 'c' then
+    if state.ui.selectedBuilding then
+      local bx = state.ui.selectedBuilding.tileX * TILE_SIZE + TILE_SIZE / 2
+      local by = state.ui.selectedBuilding.tileY * TILE_SIZE + TILE_SIZE / 2
+      local screenW, screenH = love.graphics.getDimensions()
+      state.camera.x = utils.clamp(bx - (screenW / state.camera.scale) / 2, 0, state.world.tilesX * TILE_SIZE - (screenW / state.camera.scale))
+      state.camera.y = utils.clamp(by - (screenH / state.camera.scale) / 2, 0, state.world.tilesY * TILE_SIZE - (screenH / state.camera.scale))
+    end
+    return
+  end
+
+  if key == 'tab' then
+    if #state.game.buildings > 0 then
+      state.ui.selectedIndex = (state.ui.selectedIndex % #state.game.buildings) + 1
+      state.ui.selectedBuilding = state.game.buildings[state.ui.selectedIndex]
+    end
     return
   end
 end

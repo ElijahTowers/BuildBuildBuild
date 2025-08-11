@@ -37,7 +37,7 @@ local function findNearestHouse(state, x, y)
   local best, bestDistSq
   bestDistSq = math.huge
   for _, b in ipairs(state.game.buildings) do
-    if b.type == 'house' then
+    if b.type == 'house' or b.type == 'builder' then
       local d = (b.tileX - x) ^ 2 + (b.tileY - y) ^ 2
       if d < bestDistSq then
         bestDistSq = d
@@ -63,6 +63,21 @@ local function findNearestWarehouse(state, x, y)
   return best
 end
 
+local function findConstructionTarget(state, bx, by)
+  local best, bestDistSq
+  bestDistSq = math.huge
+  for _, tb in ipairs(state.game.buildings) do
+    if tb.construction and not tb.construction.complete then
+      local d = (tb.tileX - bx) ^ 2 + (tb.tileY - by) ^ 2
+      if d < bestDistSq then
+        bestDistSq = d
+        best = tb
+      end
+    end
+  end
+  return best
+end
+
 -- Persistent villager creation
 local function createVillager(state, homeB, workB, startX, startY)
   local v = {
@@ -80,35 +95,58 @@ local function createVillager(state, homeB, workB, startX, startY)
 end
 
 function workers.spawnAssignedWorker(state, b)
-  if b.type ~= 'lumberyard' then return end
   local TILE = constants.TILE_SIZE
-  local home = findNearestHouse(state, b.tileX, b.tileY)
-  local startX, startY
-  if home then
-    startX = home.tileX * TILE + TILE / 2
-    startY = home.tileY * TILE + TILE / 2
-  else
-    startX = b.tileX * TILE + TILE / 2
-    startY = b.tileY * TILE + TILE / 2
+  if b.type == 'lumberyard' then
+    local home = findNearestHouse(state, b.tileX, b.tileY)
+    local startX, startY
+    if home then
+      startX = home.tileX * TILE + TILE / 2
+      startY = home.tileY * TILE + TILE / 2
+    else
+      startX = b.tileX * TILE + TILE / 2
+      startY = b.tileY * TILE + TILE / 2
+    end
+    local v = createVillager(state, home, b, startX, startY)
+    b.workers = b.workers or {}
+    table.insert(b.workers, {
+      x = startX,
+      y = startY,
+      state = 'toWork',
+      targetTileX = nil,
+      targetTileY = nil,
+      targetTreeIndex = nil,
+      carryWood = false,
+      chopProgress = 0,
+      swingProgress = 0,
+      swingHz = 1.8,
+      homeBuilding = home,
+      villagerRef = v
+    })
+    return
+  elseif b.type == 'builder' then
+    local home = findNearestHouse(state, b.tileX, b.tileY)
+    local startX, startY
+    if home then
+      startX = home.tileX * TILE + TILE / 2
+      startY = home.tileY * TILE + TILE / 2
+    else
+      startX = b.tileX * TILE + TILE / 2
+      startY = b.tileY * TILE + TILE / 2
+    end
+    local v = createVillager(state, home, b, startX, startY)
+    b.workers = b.workers or {}
+    table.insert(b.workers, {
+      x = startX,
+      y = startY,
+      state = 'toWork',
+      carryWood = false,
+      swingProgress = 0,
+      swingHz = 1.8,
+      homeBuilding = home,
+      villagerRef = v
+    })
+    return
   end
-  -- Create persistent villager entity
-  local v = createVillager(state, home, b, startX, startY)
-  -- Also link as an active worker for the building
-  b.workers = b.workers or {}
-  table.insert(b.workers, {
-    x = startX,
-    y = startY,
-    state = 'toWork',
-    targetTileX = nil,
-    targetTileY = nil,
-    targetTreeIndex = nil,
-    carryWood = false,
-    chopProgress = 0,
-    swingProgress = 0,
-    swingHz = 1.8,
-    homeBuilding = home,
-    villagerRef = v
-  })
 end
 
 local function ensureWorkerCount(state, b)
@@ -139,14 +177,12 @@ local function goTo(w, px, py, speed, dt)
   return false
 end
 
--- Update persistent villagers (movement and idle)
 local function updateVillagers(state, dt)
   local isDay = (state.time.normalized >= 0.25 and state.time.normalized < 0.75)
   local TILE = constants.TILE_SIZE
   for _, v in ipairs(state.game.villagers) do
     local speed = 120
     if not isDay then
-      -- Go home
       local home = v.home
       if home then
         local hx = home.tileX * TILE + TILE / 2
@@ -156,7 +192,6 @@ local function updateVillagers(state, dt)
         end
       end
     else
-      -- Go to work if morning
       if v.state == 'atHome' or v.state == 'toWork' then
         local work = v.work
         if work then
@@ -173,7 +208,6 @@ local function updateVillagers(state, dt)
   end
 end
 
--- Draw villagers (simple dots)
 local function drawVillagers(state)
   for _, v in ipairs(state.game.villagers) do
     love.graphics.setColor(colors.worker)
@@ -185,7 +219,6 @@ end
 
 function workers.update(state, dt)
   local isDay = (state.time.normalized >= 0.25 and state.time.normalized < 0.75)
-  -- Update persistent villagers positions (commute)
   updateVillagers(state, dt)
   for _, b in ipairs(state.game.buildings) do
     if b.type == "lumberyard" then
@@ -196,7 +229,6 @@ function workers.update(state, dt)
           local TILE = constants.TILE_SIZE
 
           if not isDay then
-            -- Night routine: go home and idle
             local home = w.homeBuilding
             if home then
               local hx = home.tileX * TILE + TILE / 2
@@ -215,7 +247,6 @@ function workers.update(state, dt)
             goto continue
           end
 
-          -- If recently assigned, walk to workplace center first
           if w.state == 'toWork' then
             local cx = b.tileX * TILE + TILE / 2
             local cy = b.tileY * TILE + TILE / 2
@@ -225,7 +256,6 @@ function workers.update(state, dt)
             goto continue
           end
 
-          -- Day routine (work)
           if w.state == "idle" then
             local bestIndex, bestDistSq
             bestDistSq = math.huge
@@ -308,14 +338,12 @@ function workers.update(state, dt)
             end
 
           elseif w.state == "returning" then
-            -- Deliver to nearest warehouse
             local wh = findNearestWarehouse(state, math.floor(w.x / TILE), math.floor(w.y / TILE))
             local targetPx, targetPy
             if wh then
               targetPx = wh.tileX * TILE + TILE / 2
               targetPy = wh.tileY * TILE + TILE / 2
             else
-              -- fallback to workplace
               targetPx = b.tileX * TILE + TILE / 2
               targetPy = b.tileY * TILE + TILE / 2
             end
@@ -329,7 +357,6 @@ function workers.update(state, dt)
                 end
                 w.carryWood = false
               end
-              -- Immediately head back to work area during the day
               w.state = 'toWork'
               w.targetTreeIndex = nil
               w.targetTileX, w.targetTileY = nil, nil
@@ -338,17 +365,66 @@ function workers.update(state, dt)
           ::continue::
         end
       end
+    elseif b.type == 'builder' then
+      ensureWorkerCount(state, b)
+      if b.workers then
+        local def = state.buildingDefs.builder
+        local speed = def.workerSpeed or 120
+        local ratePerWorker = def.buildRate or 2.0
+        local TILE = constants.TILE_SIZE
+        for _, w in ipairs(b.workers) do
+          if not isDay then
+            local home = w.homeBuilding
+            if home then
+              local hx = home.tileX * TILE + TILE / 2
+              local hy = home.tileY * TILE + TILE / 2
+              goTo(w, hx, hy, speed, dt)
+            end
+            w.mode = nil
+            w.targetBuilding = nil
+          else
+            -- pick/keep a target building under construction
+            if not w.targetBuilding or (w.targetBuilding.construction and w.targetBuilding.construction.complete) then
+              w.targetBuilding = findConstructionTarget(state, b.tileX, b.tileY)
+            end
+            if w.targetBuilding then
+              local tx = w.targetBuilding.tileX * TILE + TILE / 2
+              local ty = w.targetBuilding.tileY * TILE + TILE / 2
+              if goTo(w, tx, ty, speed, dt) then
+                -- contribute to construction when near
+                local c = w.targetBuilding.construction
+                if c and not c.complete then
+                  c.progress = math.min(c.required, (c.progress or 0) + ratePerWorker * dt)
+                  if c.progress >= c.required then
+                    c.complete = true
+                    if w.targetBuilding.type == 'house' then
+                      local cap = (state.buildingDefs.house.residents or 0)
+                      state.game.population.total = (state.game.population.total or 0) + cap
+                    elseif w.targetBuilding.type == 'builder' then
+                      local cap = (state.buildingDefs.builder.residents or 0)
+                      state.game.population.total = (state.game.population.total or 0) + cap
+                    end
+                  end
+                end
+              end
+            else
+              -- idle at workplace
+              local cx = b.tileX * TILE + TILE / 2
+              local cy = b.tileY * TILE + TILE / 2
+              goTo(w, cx, cy, speed * 0.5, dt)
+            end
+          end
+        end
+      end
     end
   end
 end
 
 function workers.draw(state)
-  -- Draw building workers (existing)
   local TILE_SIZE = constants.TILE_SIZE
   for _, b in ipairs(state.game.buildings) do
     if b.type == "lumberyard" and b.workers then
       for _, w in ipairs(b.workers) do
-        -- shadow
         love.graphics.setColor(0, 0, 0, 0.25)
         love.graphics.ellipse('fill', w.x, w.y + 6, 7, 3)
         love.graphics.setColor(colors.worker)
@@ -383,9 +459,17 @@ function workers.draw(state)
           love.graphics.circle("line", tx, ty, TILE_SIZE * 0.55)
         end
       end
+    elseif b.type == 'builder' and b.workers then
+      for _, w in ipairs(b.workers) do
+        love.graphics.setColor(0, 0, 0, 0.25)
+        love.graphics.ellipse('fill', w.x, w.y + 6, 7, 3)
+        love.graphics.setColor(colors.worker)
+        love.graphics.rectangle("fill", w.x - 5, w.y - 5, 10, 10, 2, 2)
+        love.graphics.setColor(colors.outline)
+        love.graphics.rectangle("line", w.x - 5, w.y - 5, 10, 10, 2, 2)
+      end
     end
   end
-  -- Draw global villager dots on top
   drawVillagers(state)
 end
 

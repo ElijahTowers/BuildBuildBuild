@@ -15,7 +15,8 @@ state.time = {
   dayLength = 180, -- seconds per full day-night cycle
   normalized = 0,  -- 0..1 across the day
   speed = 1,       -- time speed multiplier: 1, 2, 4, 8
-  lastIsDay = nil  -- last computed isDay flag for transition detection
+  lastIsDay = nil,  -- last computed isDay flag for transition detection
+  preNightSpeed = 1  -- remembers speed before switching to 8x at night
 }
 
 -- UI state
@@ -30,7 +31,13 @@ state.ui = {
   isPlacingRoad = false,
   roadStartTile = nil,
   isVillagersPanelOpen = false,
-  _villagersPanelButtons = nil -- temp bounds for assign/unassign in panel
+  _villagersPanelButtons = nil, -- temp bounds for assign/unassign in panel
+  _speedButtons = nil,
+  _miniMap = nil,
+  showMinimap = true,
+  forceGrid = false,
+  showHelp = false,
+  selectedIndex = 0
 }
 
 -- Resources, population and world entities
@@ -50,7 +57,8 @@ state.buildingDefs = {
   house = {
     cost = { wood = 10 },
     residents = 3,
-    production = nil
+    production = nil,
+    buildRequired = 10
   },
   lumberyard = {
     cost = { wood = 20 },
@@ -59,11 +67,21 @@ state.buildingDefs = {
     chopRate = 1.0,
     woodPerTree = 6,
     numWorkers = 2,
-    workerSpeed = 120 -- pixels per second
+    workerSpeed = 120, -- pixels per second
+    buildRequired = 12
   },
   warehouse = {
     cost = { wood = 20 },
-    capacity = { wood = 200 }
+    capacity = { wood = 200 },
+    buildRequired = 14
+  },
+  builder = {
+    cost = { wood = 25 },
+    numWorkers = 5,
+    workerSpeed = 120,
+    buildRate = 2.0, -- build progress per second per worker
+    buildRequired = 12,
+    residents = 5
   },
   road = {
     costPerTile = { wood = 1 }
@@ -103,6 +121,7 @@ function state.restart()
   state.time.normalized = 0
   state.time.speed = 1
   state.time.lastIsDay = nil
+  state.time.preNightSpeed = 1
 end
 
 return state 
