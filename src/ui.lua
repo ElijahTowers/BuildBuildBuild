@@ -225,7 +225,7 @@ end
 function ui.drawHUD(state)
   local x = ui.villagersButton.x + ui.villagersButton.width + 16
   local y = 16
-  local w = 420
+  local w = 600
   local h = 84
   love.graphics.setColor(colors.uiPanel)
   love.graphics.rectangle("fill", x, y, w, h, 8, 8)
@@ -237,12 +237,36 @@ function ui.drawHUD(state)
   local woodRate = state.game.productionRates.wood or 0
   love.graphics.print(string.format("Wood: %d  (+%.1f/s passive)", wood, woodRate), x + 12, y + 12)
 
-  -- Day/Night clock (HH:MM)
   local hours = math.floor(state.time.normalized * 24) % 24
   local minutes = math.floor((state.time.normalized * 24 - hours) * 60)
   local tnorm = state.time.normalized
   local isDay = (tnorm >= 0.25 and tnorm < 0.75)
   love.graphics.print(string.format("Time: %02d:%02d (%s)", hours, minutes, isDay and "Day" or "Night"), x + 220, y + 12)
+  love.graphics.print(string.format("Speed: %dx", state.time.speed or 1), x + 400, y + 12)
+
+  local btnW, btnH = 36, 22
+  local s1x = x + 390; local s1y = y + 36
+  local s2x = s1x + btnW + 6; local s2y = s1y
+  local s4x = s2x + btnW + 6; local s4y = s1y
+  local s8x = s4x + btnW + 6; local s8y = s1y
+  local function drawSpeed(xb, yb, label, active)
+    love.graphics.setColor(active and colors.buttonHover or colors.button)
+    love.graphics.rectangle('fill', xb, yb, btnW, btnH, 6, 6)
+    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.rectangle('line', xb, yb, btnW, btnH, 6, 6)
+    love.graphics.setColor(colors.text)
+    love.graphics.printf(label, xb, yb + 4, btnW, 'center')
+  end
+  drawSpeed(s1x, s1y, '1x', (state.time.speed or 1) == 1)
+  drawSpeed(s2x, s2y, '2x', (state.time.speed or 1) == 2)
+  drawSpeed(s4x, s4y, '4x', (state.time.speed or 1) == 4)
+  drawSpeed(s8x, s8y, '8x', (state.time.speed or 1) == 8)
+  state.ui._speedButtons = {
+    s1 = { x = s1x, y = s1y, w = btnW, h = btnH, v = 1 },
+    s2 = { x = s2x, y = s2y, w = btnW, h = btnH, v = 2 },
+    s4 = { x = s4x, y = s4y, w = btnW, h = btnH, v = 4 },
+    s8 = { x = s8x, y = s8y, w = btnW, h = btnH, v = 8 }
+  }
 
   if state.ui.isPlacingBuilding and state.ui.selectedBuildingType and not state.ui.isPaused then
     local def = state.buildingDefs[state.ui.selectedBuildingType]
@@ -263,7 +287,6 @@ function ui.drawHUD(state)
     love.graphics.print(string.format("Road: click-drag to build, cost %d wood/tile. Right click to cancel.", costPer), x + 12, y + 30)
   end
 
-  -- Draw global villagers panel if toggled
   ui.drawVillagersPanel(state)
 end
 

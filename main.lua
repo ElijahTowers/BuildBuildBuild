@@ -124,23 +124,39 @@ end
 function love.update(dt)
   if state.ui.isPaused or state.ui.isBuildMenuOpen then return end
 
-  -- Time of day
-  state.time.t = (state.time.t + dt) % state.time.dayLength
+  -- Auto speed by day/night
+  local isDay = (state.time.normalized >= 0.25 and state.time.normalized < 0.75)
+  if state.time.lastIsDay == nil then
+    state.time.lastIsDay = isDay
+  else
+    if isDay ~= state.time.lastIsDay then
+      if isDay then
+        state.time.speed = 1
+      else
+        state.time.speed = 8
+      end
+      state.time.lastIsDay = isDay
+    end
+  end
+
+  -- Time of day (apply time speed)
+  local sdt = dt * (state.time.speed or 1)
+  state.time.t = (state.time.t + sdt) % state.time.dayLength
   state.time.normalized = state.time.t / state.time.dayLength
 
   -- Passive production placeholder (none currently for lumberyard)
   state.game.productionRates.wood = 0
 
   -- Systems
-  workers.update(state, dt)
-  buildings.update(state, dt)
-  particles.update(state.game.particles, dt)
-  trees.updateShake(state, dt)
+  workers.update(state, sdt)
+  buildings.update(state, sdt)
+  particles.update(state.game.particles, sdt)
+  trees.updateShake(state, sdt)
 
   -- Preview timer for pulsing outline
-  state.ui.previewT = state.ui.previewT + dt
+  state.ui.previewT = state.ui.previewT + sdt
 
-  -- Mouse edge panning
+  -- Mouse edge panning (not speed-scaled)
   local mx, my = love.mouse.getPosition()
   local screenW, screenH = love.graphics.getDimensions()
   local margin = 24
@@ -386,6 +402,16 @@ function love.mousepressed(x, y, button)
         return
       elseif rem and x >= rem.x and x <= rem.x + rem.w and y >= rem.y and y <= rem.y + rem.h then
         buildings.unassignOne(state, entry.b)
+        return
+      end
+    end
+  end
+
+  -- Speed buttons in HUD
+  if state.ui._speedButtons then
+    for _, btn in pairs(state.ui._speedButtons) do
+      if x >= btn.x and x <= btn.x + btn.w and y >= btn.y and y <= btn.y + btn.h then
+        state.time.speed = btn.v
         return
       end
     end

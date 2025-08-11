@@ -13,7 +13,9 @@ state.world = { tilesX = 0, tilesY = 0 }
 state.time = {
   t = 0,           -- seconds elapsed in current day
   dayLength = 180, -- seconds per full day-night cycle
-  normalized = 0   -- 0..1 across the day
+  normalized = 0,  -- 0..1 across the day
+  speed = 1,       -- time speed multiplier: 1, 2, 4, 8
+  lastIsDay = nil  -- last computed isDay flag for transition detection
 }
 
 -- UI state
@@ -95,6 +97,8 @@ function state.restart()
   state.camera.x, state.camera.y = 0, 0
   state.time.t = 0
   state.time.normalized = 0
+  state.time.speed = 1
+  state.time.lastIsDay = nil
 end
 
 return state 
