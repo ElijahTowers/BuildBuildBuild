@@ -9,6 +9,7 @@ local ui = {}
 
 ui.buildButton = { x = 16, y = 16, width = 120, height = 40, label = "Build" }
 ui.roadButton = { x = 16 + 120 + 8, y = 16, width = 120, height = 40, label = "Roads" }
+ui.villagersButton = { x = 16 + (120 + 8) * 2, y = 16, width = 140, height = 40, label = "Villagers" }
 
 ui.buildMenu = {
   x = 16, -- not used for drawing when centered, kept for compatibility
@@ -77,6 +78,11 @@ function ui.isOverRoadButton(mx, my)
   return utils.isPointInRect(mx, my, b.x, b.y, b.width, b.height)
 end
 
+function ui.isOverVillagersButton(mx, my)
+  local b = ui.villagersButton
+  return utils.isPointInRect(mx, my, b.x, b.y, b.width, b.height)
+end
+
 function ui.isOverBuildMenu(mx, my)
   local x, y, w, h = ui.getBuildMenuRect()
   return utils.isPointInRect(mx, my, x, y, w, h)
@@ -99,34 +105,25 @@ function ui.getBuildMenuOptionAt(mx, my)
 end
 
 function ui.drawTopButtons(state)
-  -- Build button
-  local b = ui.buildButton
-  local mx, my = love.mouse.getPosition()
-  local hovered = utils.isPointInRect(mx, my, b.x, b.y, b.width, b.height)
-  love.graphics.setColor(hovered and colors.buttonHover or colors.button)
-  love.graphics.rectangle("fill", b.x, b.y, b.width, b.height, 6, 6)
-  love.graphics.setColor(colors.uiPanelOutline)
-  love.graphics.rectangle("line", b.x, b.y, b.width, b.height, 6, 6)
-  love.graphics.setColor(colors.text)
-  love.graphics.printf(b.label, b.x, b.y + 12, b.width, "center")
+  local function drawButton(b, active)
+    local mx, my = love.mouse.getPosition()
+    local hovered = utils.isPointInRect(mx, my, b.x, b.y, b.width, b.height)
+    love.graphics.setColor(active and colors.buttonHover or (hovered and colors.buttonHover or colors.button))
+    love.graphics.rectangle("fill", b.x, b.y, b.width, b.height, 6, 6)
+    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.rectangle("line", b.x, b.y, b.width, b.height, 6, 6)
+    love.graphics.setColor(colors.text)
+    love.graphics.printf(b.label, b.x, b.y + 12, b.width, "center")
+  end
 
-  -- Road button (toggle)
-  local r = ui.roadButton
-  local hovered2 = utils.isPointInRect(mx, my, r.x, r.y, r.width, r.height)
-  local isActive = state.ui.isPlacingRoad
-  love.graphics.setColor(isActive and colors.buttonHover or (hovered2 and colors.buttonHover or colors.button))
-  love.graphics.rectangle("fill", r.x, r.y, r.width, r.height, 6, 6)
-  love.graphics.setColor(colors.uiPanelOutline)
-  love.graphics.rectangle("line", r.x, r.y, r.width, r.height, 6, 6)
-  love.graphics.setColor(colors.text)
-  love.graphics.printf(r.label, r.x, r.y + 12, r.width, "center")
+  drawButton(ui.buildButton, false)
+  drawButton(ui.roadButton, state.ui.isPlacingRoad)
+  drawButton(ui.villagersButton, state.ui.isVillagersPanelOpen)
 end
 
 function ui.drawBuildMenu(state, buildingDefs)
   if not state.ui.isBuildMenuOpen and state.ui.buildMenuAlpha <= 0 then return end
   ui.computeBuildMenuSize(buildingDefs)
-
-  -- Animate alpha towards target (open -> 1, closed -> 0)
   local target = state.ui.isBuildMenuOpen and 1 or 0
   state.ui.buildMenuAlpha = state.ui.buildMenuAlpha + (target - state.ui.buildMenuAlpha) * 0.2
   local a = state.ui.buildMenuAlpha
@@ -178,10 +175,57 @@ function ui.drawBuildMenu(state, buildingDefs)
   love.graphics.pop()
 end
 
-function ui.drawHUD(state)
-  local x = ui.roadButton.x + ui.roadButton.width + 16
+function ui.drawVillagersPanel(state)
+  if not state.ui.isVillagersPanelOpen then return end
+  local w, h = 420, 140
+  local x = love.graphics.getWidth() - w - 16
   local y = 16
-  local w = 380
+  love.graphics.setColor(colors.uiPanel)
+  love.graphics.rectangle('fill', x, y, w, h, 10, 10)
+  love.graphics.setColor(colors.uiPanelOutline)
+  love.graphics.rectangle('line', x, y, w, h, 10, 10)
+
+  love.graphics.setColor(colors.text)
+  local pop = state.game.population
+  love.graphics.print(string.format('Villagers: %d / %d assigned', pop.assigned or 0, pop.total or 0), x + 12, y + 12)
+  love.graphics.print(string.format('Capacity: %d', pop.capacity or 0), x + 12, y + 32)
+
+  -- List worker buildings with +/- controls
+  local btns = {}
+  local rowY = y + 56
+  for _, b in ipairs(state.game.buildings) do
+    if b.type == 'lumberyard' then
+      local name = 'Lumberyard'
+      local maxSlots = state.buildingDefs.lumberyard.numWorkers or 0
+      love.graphics.setColor(colors.text)
+      love.graphics.print(string.format('%s (%d/%d)', name, b.assigned or 0, maxSlots), x + 12, rowY)
+      local btnW, btnH = 28, 24
+      -- minus on the left, plus on the right
+      local remX, remY = x + w - 76, rowY - 4
+      local addX, addY = x + w - 40, rowY - 4
+      love.graphics.setColor(colors.button)
+      love.graphics.rectangle('fill', remX, remY, btnW, btnH, 6, 6)
+      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.rectangle('line', remX, remY, btnW, btnH, 6, 6)
+      love.graphics.setColor(colors.text)
+      love.graphics.printf('-', remX, remY + 4, btnW, 'center')
+      love.graphics.setColor(colors.button)
+      love.graphics.rectangle('fill', addX, addY, btnW, btnH, 6, 6)
+      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.rectangle('line', addX, addY, btnW, btnH, 6, 6)
+      love.graphics.setColor(colors.text)
+      love.graphics.printf('+', addX, addY + 4, btnW, 'center')
+      table.insert(btns, { type = 'lumberyard', b = b, add = { x = addX, y = addY, w = btnW, h = btnH }, rem = { x = remX, y = remY, w = btnW, h = btnH } })
+      rowY = rowY + 28
+    end
+  end
+  state.ui._villagersPanelButtons = btns
+end
+
+function ui.drawHUD(state)
+  local x = ui.villagersButton.x + ui.villagersButton.width + 16
+  local y = 16
+  local w = 420
   local h = 84
   love.graphics.setColor(colors.uiPanel)
   love.graphics.rectangle("fill", x, y, w, h, 8, 8)
@@ -192,6 +236,13 @@ function ui.drawHUD(state)
   local wood = math.floor(state.game.resources.wood + 0.5)
   local woodRate = state.game.productionRates.wood or 0
   love.graphics.print(string.format("Wood: %d  (+%.1f/s passive)", wood, woodRate), x + 12, y + 12)
+
+  -- Day/Night clock (HH:MM)
+  local hours = math.floor(state.time.normalized * 24) % 24
+  local minutes = math.floor((state.time.normalized * 24 - hours) * 60)
+  local tnorm = state.time.normalized
+  local isDay = (tnorm >= 0.25 and tnorm < 0.75)
+  love.graphics.print(string.format("Time: %02d:%02d (%s)", hours, minutes, isDay and "Day" or "Night"), x + 220, y + 12)
 
   if state.ui.isPlacingBuilding and state.ui.selectedBuildingType and not state.ui.isPaused then
     local def = state.buildingDefs[state.ui.selectedBuildingType]
@@ -211,6 +262,9 @@ function ui.drawHUD(state)
     local costPer = state.buildingDefs.road.costPerTile.wood or 0
     love.graphics.print(string.format("Road: click-drag to build, cost %d wood/tile. Right click to cancel.", costPer), x + 12, y + 30)
   end
+
+  -- Draw global villagers panel if toggled
+  ui.drawVillagersPanel(state)
 end
 
 function ui.drawPauseMenu(state)

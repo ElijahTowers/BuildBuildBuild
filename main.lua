@@ -115,10 +115,18 @@ function love.load()
   state.resetWorldTilesFromScreen()
   ui.computeBuildMenuHeight()
   trees.generate(state)
+
+  -- Start at beginning of the day (around sunrise ~06:00)
+  state.time.t = state.time.dayLength * 0.25
+  state.time.normalized = state.time.t / state.time.dayLength
 end
 
 function love.update(dt)
   if state.ui.isPaused or state.ui.isBuildMenuOpen then return end
+
+  -- Time of day
+  state.time.t = (state.time.t + dt) % state.time.dayLength
+  state.time.normalized = state.time.t / state.time.dayLength
 
   -- Passive production placeholder (none currently for lumberyard)
   state.game.productionRates.wood = 0
@@ -151,6 +159,42 @@ function love.update(dt)
   state.camera.y = utils.clamp(state.camera.y, 0, maxCamY)
 end
 
+local function getAmbientColor()
+  -- Map normalized time [0..1) to ambient brightness/color
+  -- Dawn 0.2, Day 0.8, Dusk 0.2, Night 0.05
+  local t = state.time.normalized
+  local function lerp(a, b, u) return a + (b - a) * u end
+  local brightness
+  if t < 0.25 then
+    -- Night -> Dawn
+    brightness = lerp(0.05, 0.8, t / 0.25)
+  elseif t < 0.5 then
+    -- Day
+    brightness = 0.8
+  elseif t < 0.75 then
+    -- Dusk
+    brightness = lerp(0.8, 0.2, (t - 0.5) / 0.25)
+  else
+    -- Night
+    brightness = 0.05
+  end
+  -- Slight warm tint at sunrise/sunset
+  local warm = math.max(0, 0.5 - math.abs(t - 0.5)) * 0.2
+  local r = brightness + warm * 0.2
+  local g = brightness + warm * 0.1
+  local b = brightness
+  return r, g, b
+end
+
+local function drawDayNightOverlay()
+  local screenW, screenH = love.graphics.getDimensions()
+  local r, g, b = getAmbientColor()
+  -- Darken based on inverse brightness
+  local darkness = 1 - math.min(1, (r + g + b) / 3)
+  love.graphics.setColor(0, 0, 0, 0.5 * darkness)
+  love.graphics.rectangle('fill', 0, 0, screenW, screenH)
+end
+
 function love.draw()
   -- World space draw
   love.graphics.push()
@@ -165,14 +209,12 @@ function love.draw()
   buildings.drawAll(state)
   workers.draw(state)
 
-  -- Dim the world during placement preview (but keep the preview bright)
   if state.ui.isPlacingBuilding and state.ui.selectedBuildingType then
     local screenW, screenH = love.graphics.getDimensions()
     love.graphics.setColor(0, 0, 0, 0.35)
     love.graphics.rectangle('fill', state.camera.x, state.camera.y, screenW, screenH)
   end
 
-  -- Road preview
   if state.ui.isPlacingRoad and state.ui.roadStartTile then
     local sx, sy = state.ui.roadStartTile.x, state.ui.roadStartTile.y
     local ex, ey = getMouseTile()
@@ -185,10 +227,49 @@ function love.draw()
 
   love.graphics.pop()
 
+  -- Day-night overlay over world and under UI
+  drawDayNightOverlay()
+
   -- UI draw
   ui.drawTopButtons(state)
   ui.drawBuildMenu(state, state.buildingDefs)
   ui.drawHUD(state)
+
+  local sel = state.ui.selectedBuilding
+  if sel and sel.type == 'lumberyard' then
+    local mx, my = 16, love.graphics.getHeight() - 90
+    local panelW, panelH = 320, 70
+    love.graphics.setColor(colors.uiPanel)
+    love.graphics.rectangle('fill', mx, my, panelW, panelH, 8, 8)
+    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.rectangle('line', mx, my, panelW, panelH, 8, 8)
+
+    love.graphics.setColor(colors.text)
+    local maxSlots = state.buildingDefs.lumberyard.numWorkers or 0
+    love.graphics.print(string.format('Lumberyard workers: %d / %d', sel.assigned or 0, maxSlots), mx + 12, my + 12)
+    love.graphics.print(string.format('Population: %d total, %d assigned', state.game.population.total or 0, state.game.population.assigned or 0), mx + 12, my + 30)
+
+    local btnW, btnH = 32, 28
+    -- minus on the left, plus on the right
+    local remX, remY = mx + panelW - 80, my + 12
+    local addX, addY = mx + panelW - 40, my + 12
+
+    local function drawBtn(x, y, label)
+      love.graphics.setColor(colors.button)
+      love.graphics.rectangle('fill', x, y, btnW, btnH, 6, 6)
+      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.rectangle('line', x, y, btnW, btnH, 6, 6)
+      love.graphics.setColor(colors.text)
+      love.graphics.printf(label, x, y + 6, btnW, 'center')
+    end
+
+    -- draw minus then plus
+    drawBtn(remX, remY, '-')
+    drawBtn(addX, addY, '+')
+
+    sel._assignBtn = { x = addX, y = addY, w = btnW, h = btnH }
+    sel._unassignBtn = { x = remX, y = remY, w = btnW, h = btnH }
+  end
 
   if not state.ui.isPaused and not state.ui.isBuildMenuOpen then
     love.graphics.setColor(colors.text)
@@ -209,13 +290,11 @@ local function hitTestBuildingAt(state, tileX, tileY)
 end
 
 function love.mousepressed(x, y, button)
-  -- If pause menu is open (not build overlay), route to pause menu
   if state.ui.isPaused and not state.ui.isBuildMenuOpen then
     if button == 1 then handlePauseMenuClick(x, y) end
     return
   end
 
-  -- Right click cancels placement or closes build menu or deselects or cancels road mode
   if button == 2 then
     if state.ui.isPlacingBuilding then
       state.ui.isPlacingBuilding = false
@@ -236,7 +315,6 @@ function love.mousepressed(x, y, button)
 
   if button ~= 1 then return end
 
-  -- Toggle build overlay
   if ui.isOverBuildButton(x, y) then
     state.ui.isBuildMenuOpen = not state.ui.isBuildMenuOpen
     if state.ui.isBuildMenuOpen then
@@ -244,21 +322,31 @@ function love.mousepressed(x, y, button)
       state.ui.selectedBuildingType = nil
       state.ui.isPlacingRoad = false
       state.ui.roadStartTile = nil
+      state.ui.isVillagersPanelOpen = false
     end
     return
   end
 
-  -- Toggle road mode
   if ui.isOverRoadButton(x, y) then
     state.ui.isPlacingRoad = not state.ui.isPlacingRoad
     state.ui.isPlacingBuilding = false
     state.ui.selectedBuildingType = nil
     state.ui.isBuildMenuOpen = false
     state.ui.roadStartTile = nil
+    state.ui.isVillagersPanelOpen = false
     return
   end
 
-  -- Handle clicks on build menu
+  if ui.isOverVillagersButton(x, y) then
+    state.ui.isVillagersPanelOpen = not state.ui.isVillagersPanelOpen
+    state.ui.isBuildMenuOpen = false
+    state.ui.isPlacingBuilding = false
+    state.ui.selectedBuildingType = nil
+    state.ui.isPlacingRoad = false
+    state.ui.roadStartTile = nil
+    return
+  end
+
   if state.ui.isBuildMenuOpen then
     local option = ui.getBuildMenuOptionAt(x, y)
     if option then
@@ -272,7 +360,37 @@ function love.mousepressed(x, y, button)
     end
   end
 
-  -- Road placement start or apply
+  -- Local staffing buttons when a lumberyard is selected
+  do
+    local sel = state.ui.selectedBuilding
+    if sel and sel.type == 'lumberyard' then
+      local add = sel._assignBtn
+      local rem = sel._unassignBtn
+      if add and x >= add.x and x <= add.x + add.w and y >= add.y and y <= add.y + add.h then
+        buildings.assignOne(state, sel)
+        return
+      elseif rem and x >= rem.x and x <= rem.x + rem.w and y >= rem.y and y <= rem.y + rem.h then
+        buildings.unassignOne(state, sel)
+        return
+      end
+    end
+  end
+
+  -- Global villagers panel buttons
+  if state.ui.isVillagersPanelOpen and state.ui._villagersPanelButtons then
+    for _, entry in ipairs(state.ui._villagersPanelButtons) do
+      local add = entry.add
+      local rem = entry.rem
+      if add and x >= add.x and x <= add.x + add.w and y >= add.y and y <= add.y + add.h then
+        buildings.assignOne(state, entry.b)
+        return
+      elseif rem and x >= rem.x and x <= rem.x + rem.w and y >= rem.y and y <= rem.y + rem.h then
+        buildings.unassignOne(state, entry.b)
+        return
+      end
+    end
+  end
+
   if state.ui.isPlacingRoad then
     local tx, ty = getMouseTile()
     if not state.ui.roadStartTile then
@@ -287,7 +405,6 @@ function love.mousepressed(x, y, button)
     end
   end
 
-  -- If not placing, try selecting a building
   if not state.ui.isPlacingBuilding then
     local tileX, tileY = getMouseTile()
     local b = hitTestBuildingAt(state, tileX, tileY)
@@ -295,7 +412,6 @@ function love.mousepressed(x, y, button)
     if b then return end
   end
 
-  -- Handle placement
   if state.ui.isPlacingBuilding and state.ui.selectedBuildingType then
     local tileX, tileY = getMouseTile()
     if not isOverUI(x, y)
@@ -304,7 +420,7 @@ function love.mousepressed(x, y, button)
       buildings.payCost(state, state.ui.selectedBuildingType)
       local newB = buildings.place(state, state.ui.selectedBuildingType, tileX, tileY)
       if newB.type == 'lumberyard' then
-        workers.spawnForLumberyard(state, newB)
+        -- workers spawn as assigned when user assigns
       end
       state.ui.isPlacingBuilding = false
       state.ui.selectedBuildingType = nil

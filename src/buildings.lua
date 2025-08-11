@@ -58,9 +58,18 @@ function buildings.place(state, buildingType, tileX, tileY)
     tileX = tileX,
     tileY = tileY,
     color = color,
-    anim = { appear = 0, t = 0, sawAngle = 0, active = false }
+    anim = { appear = 0, t = 0, sawAngle = 0, active = false },
+    assigned = 0 -- number of assigned workers for worker buildings
   }
   table.insert(state.game.buildings, newB)
+
+  -- population capacity for houses
+  if buildingType == 'house' then
+    local cap = (state.buildingDefs.house.residents or 0)
+    state.game.population.capacity = (state.game.population.capacity or 0) + cap
+    -- Spawn residents immediately (simple prototype)
+    state.game.population.total = (state.game.population.total or 0) + cap
+  end
 
   -- dust burst on placement
   local TILE_SIZE = constants.TILE_SIZE
@@ -75,28 +84,43 @@ end
 function buildings.update(state, dt)
   for _, b in ipairs(state.game.buildings) do
     b.anim = b.anim or { appear = 1, t = 0, sawAngle = 0, active = false }
-    -- Appear tween
     if b.anim.appear < 1 then
       b.anim.appear = math.min(1, b.anim.appear + dt * 3.0)
     end
-    -- Idle breathing
     b.anim.t = (b.anim.t or 0) + dt
 
-    -- Lumberyard active indicator (rotating saw) if any worker is busy
-    if b.type == 'lumberyard' and b.workers then
-      local active = false
-      for _, w in ipairs(b.workers) do
-        if w.state == 'toTree' or w.state == 'chopping' or w.state == 'returning' then
-          active = true
-          break
-        end
-      end
-      b.anim.active = active
-      if active then
-        b.anim.sawAngle = (b.anim.sawAngle or 0) + dt * 6.0
-      end
+    -- Lumberyard active if has assigned workers and workers are busy
+    if b.type == 'lumberyard' then
+      b.anim.active = (b.assigned or 0) > 0
     end
   end
+end
+
+-- Staffing controls
+function buildings.canAssign(state, b)
+  if b.type ~= 'lumberyard' then return false end
+  local free = (state.game.population.total or 0) - (state.game.population.assigned or 0)
+  local maxSlots = state.buildingDefs.lumberyard.numWorkers or 0
+  return free > 0 and (b.assigned or 0) < maxSlots
+end
+
+function buildings.assignOne(state, b)
+  if not buildings.canAssign(state, b) then return false end
+  b.assigned = (b.assigned or 0) + 1
+  state.game.population.assigned = (state.game.population.assigned or 0) + 1
+  return true
+end
+
+function buildings.canUnassign(state, b)
+  if b.type ~= 'lumberyard' then return false end
+  return (b.assigned or 0) > 0
+end
+
+function buildings.unassignOne(state, b)
+  if not buildings.canUnassign(state, b) then return false end
+  b.assigned = b.assigned - 1
+  state.game.population.assigned = state.game.population.assigned - 1
+  return true
 end
 
 -- Draw a simple saw blade icon at given position

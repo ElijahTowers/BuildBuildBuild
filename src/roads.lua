@@ -95,7 +95,7 @@ function roads.placePath(state, path)
   if placed > 0 then return true, placed else return false, 0 end
 end
 
--- Draw roads with neighbor connections
+-- Draw roads with neighbor connections (subtle look)
 local function has(state, x, y) return roads.hasRoad(state, x, y) end
 
 function roads.draw(state)
@@ -109,31 +109,31 @@ function roads.draw(state)
     local cx = px + TILE / 2
     local cy = py + TILE / 2
 
-    -- base tile
-    love.graphics.setColor(0.35, 0.35, 0.38, 1)
+    -- base tile (blend with background)
+    love.graphics.setColor(0.18, 0.18, 0.20, 0.85)
     love.graphics.rectangle('fill', px + 2, py + 2, TILE - 4, TILE - 4, 4, 4)
 
-    -- center strip
-    love.graphics.setColor(0.2, 0.2, 0.22, 1)
-    love.graphics.rectangle('fill', px + 6, py + TILE / 2 - 2, TILE - 12, 4, 2, 2)
+    -- soft center strip
+    love.graphics.setColor(0.22, 0.22, 0.24, 0.6)
+    love.graphics.rectangle('fill', px + 6, py + TILE / 2 - 1, TILE - 12, 2, 1, 1)
 
-    -- connections
-    love.graphics.setColor(0.28, 0.28, 0.3, 1)
+    -- connections (very subtle extensions)
+    love.graphics.setColor(0.16, 0.16, 0.18, 0.7)
     if has(state, x, y - 1) then
-      love.graphics.rectangle('fill', px + 6, py, TILE - 12, TILE / 2 - 2)
+      love.graphics.rectangle('fill', px + 6, py + 2, TILE - 12, TILE / 2 - 3)
     end
     if has(state, x + 1, y) then
-      love.graphics.rectangle('fill', cx, py + 6, TILE / 2 - 2, TILE - 12)
+      love.graphics.rectangle('fill', cx + 2, py + 6, TILE / 2 - 4, TILE - 12)
     end
     if has(state, x, y + 1) then
-      love.graphics.rectangle('fill', px + 6, cy, TILE - 12, TILE / 2 - 2)
+      love.graphics.rectangle('fill', px + 6, cy + 2, TILE - 12, TILE / 2 - 4)
     end
     if has(state, x - 1, y) then
-      love.graphics.rectangle('fill', px, py + 6, TILE / 2 - 2, TILE - 12)
+      love.graphics.rectangle('fill', px + 2, py + 6, TILE / 2 - 3, TILE - 12)
     end
 
-    -- outline
-    love.graphics.setColor(colors.outline)
+    -- outline (low alpha)
+    love.graphics.setColor(colors.outline[1], colors.outline[2], colors.outline[3], 0.12)
     love.graphics.rectangle('line', px + 2, py + 2, TILE - 4, TILE - 4, 4, 4)
   end
 end
