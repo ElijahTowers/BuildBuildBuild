@@ -107,7 +107,7 @@ function ui.getBuildMenuOptionAt(mx, my)
 end
 
 function ui.drawTopButtons(state)
-  local function drawButton(b, active)
+  local function drawButton(b, active, hint)
     local mx, my = love.mouse.getPosition()
     local hovered = utils.isPointInRect(mx, my, b.x, b.y, b.width, b.height)
     love.graphics.setColor(active and colors.buttonHover or (hovered and colors.buttonHover or colors.button))
@@ -116,11 +116,15 @@ function ui.drawTopButtons(state)
     love.graphics.rectangle("line", b.x, b.y, b.width, b.height, 6, 6)
     love.graphics.setColor(colors.text)
     love.graphics.printf(b.label, b.x, b.y + 12, b.width, "center")
+    if hint then
+      love.graphics.setColor(colors.text[1], colors.text[2], colors.text[3], 0.6)
+      love.graphics.printf(hint, b.x + b.width - 28, b.y + 6, 24, "right")
+    end
   end
 
-  drawButton(ui.buildButton, false)
-  drawButton(ui.roadButton, state.ui.isPlacingRoad)
-  drawButton(ui.villagersButton, state.ui.isVillagersPanelOpen)
+  drawButton(ui.buildButton, false, "C")
+  drawButton(ui.roadButton, state.ui.isPlacingRoad, "R")
+  drawButton(ui.villagersButton, state.ui.isVillagersPanelOpen, "V")
 end
 
 function ui.drawBuildMenu(state, buildingDefs)
@@ -173,6 +177,13 @@ function ui.drawBuildMenu(state, buildingDefs)
       costText = string.format(" (Cost: %d wood)", def.cost.wood)
     end
     love.graphics.print(option.label .. costText, ox + 52, oy + 12)
+
+    -- shortcuts for quick build (if defined)
+    local shortcut = (option.key == 'house' and 'H') or (option.key == 'lumberyard' and 'L') or (option.key == 'warehouse' and 'W') or (option.key == 'builder' and 'B') or nil
+    if shortcut then
+      love.graphics.setColor(colors.text[1], colors.text[2], colors.text[3], 0.6)
+      love.graphics.printf(shortcut, ox + ow - 28, oy + 6, 24, 'right')
+    end
   end
 
   love.graphics.pop()
@@ -180,9 +191,14 @@ end
 
 function ui.drawVillagersPanel(state)
   if not state.ui.isVillagersPanelOpen then return end
-  local w, h = 420, 140
-  local x = love.graphics.getWidth() - w - 16
-  local y = 16
+  -- Backdrop shade to indicate pause
+  love.graphics.setColor(0, 0, 0, 0.35)
+  love.graphics.rectangle('fill', 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
+
+  local w, h = 520, 200
+  local screenW, screenH = love.graphics.getDimensions()
+  local x = (screenW - w) / 2
+  local y = (screenH - h) / 2
   love.graphics.setColor(colors.uiPanel)
   love.graphics.rectangle('fill', x, y, w, h, 10, 10)
   love.graphics.setColor(colors.uiPanelOutline)
@@ -194,7 +210,7 @@ function ui.drawVillagersPanel(state)
   love.graphics.print(string.format('Capacity: %d', pop.capacity or 0), x + 12, y + 32)
 
   local btns = {}
-  local rowY = y + 56
+  local rowY = y + 64
   for _, b in ipairs(state.game.buildings) do
     if b.type == 'lumberyard' or b.type == 'builder' then
       local name = (b.type == 'lumberyard') and 'Lumberyard' or 'Builders Workplace'
@@ -378,6 +394,36 @@ function ui.drawHUD(state)
   end
 
   ui.drawVillagersPanel(state)
+end
+
+function ui.drawPrompt(state)
+  if not state.ui.promptText then return end
+  local t = state.ui.promptT or 0
+  local dur = state.ui.promptDuration or 0
+  local sticky = state.ui.promptSticky
+  if (not sticky) and dur > 0 and t > dur then return end
+
+  local alpha = 1.0
+  if (not sticky) and dur > 0 and dur < 9000 then
+    local remain = math.max(0, dur - t)
+    alpha = math.min(1, remain / (dur * 0.5))
+  end
+
+  local msg = state.ui.promptText
+  local screenW, screenH = love.graphics.getDimensions()
+  -- Place below the top buttons and HUD, left side
+  local x = 16
+  local y = 16 + 40 + 8 + 84 + 8 -- top buttons height + spacing + HUD height + spacing
+  local w = math.min(520, screenW - x - 16)
+  local h = 56
+
+  love.graphics.setColor(0, 0, 0, 0.75 * alpha)
+  love.graphics.rectangle('fill', x, y, w, h, 10, 10)
+  love.graphics.setColor(colors.uiPanelOutline[1], colors.uiPanelOutline[2], colors.uiPanelOutline[3], 0.9 * alpha)
+  love.graphics.rectangle('line', x, y, w, h, 10, 10)
+
+  love.graphics.setColor(colors.text[1], colors.text[2], colors.text[3], alpha)
+  love.graphics.printf(msg, x + 12, y + 16, w - 24, 'left')
 end
 
 function ui.drawPauseMenu(state)

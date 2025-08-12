@@ -46,6 +46,31 @@ local function isOverUI(mx, my)
   return false
 end
 
+-- Count warehouses in the world
+local function countWarehouses()
+  local c = 0
+  for _, b in ipairs(state.game.buildings) do
+    if b.type == 'warehouse' then c = c + 1 end
+  end
+  return c
+end
+
+-- Compute total wood across base and warehouses
+local function computeTotalWood()
+  local total = state.game.resources.wood or 0
+  for _, b in ipairs(state.game.buildings) do
+    if b.type == 'warehouse' and b.storage and b.storage.wood then
+      total = total + b.storage.wood
+    end
+  end
+  return total
+end
+
+-- Compute total wood capacity (base + per-warehouse)
+local function computeWoodCapacity()
+  return 50 + 100 * countWarehouses()
+end
+
 -- Draw a placement preview at mouse tile, including lumberyard radius
 local function drawPlacementPreview()
   if state.ui.isPaused then return end
@@ -131,10 +156,17 @@ function love.load()
   state.ui.isPlacingBuilding = true
   state.ui.selectedBuildingType = 'builder'
   state.ui._isFreeInitialBuilder = true
+  -- Pause time until initial builder is placed
+  state.ui._pauseTimeForInitial = true
+  -- Prompt the player to place the builders workplace
+  state.ui.promptText = "Place your Builders Workplace for free. Left-click a tile to place."
+  state.ui.promptT = 0
+  state.ui.promptDuration = 9999
 end
 
 function love.update(dt)
-  if state.ui.isPaused or state.ui.isBuildMenuOpen then return end
+  if state.ui.isPaused or state.ui.isBuildMenuOpen or state.ui.isVillagersPanelOpen then return end
+  local isInitial = state.ui._pauseTimeForInitial
 
   -- Auto speed by day/night
   local isDay = (state.time.normalized >= 0.25 and state.time.normalized < 0.75)
@@ -156,20 +188,61 @@ function love.update(dt)
 
   -- Time of day (apply time speed)
   local sdt = dt * (state.time.speed or 1)
-  state.time.t = (state.time.t + sdt) % state.time.dayLength
-  state.time.normalized = state.time.t / state.time.dayLength
+  if not isInitial then
+    state.time.t = (state.time.t + sdt) % state.time.dayLength
+    state.time.normalized = state.time.t / state.time.dayLength
+  end
 
   -- Passive production placeholder (none currently for lumberyard)
   state.game.productionRates.wood = 0
 
+  -- Global prompt for full storage (base or warehouses)
+  do
+    local totalWood = computeTotalWood()
+    local cap = computeWoodCapacity()
+    local warehouses = countWarehouses()
+
+    if totalWood >= cap and not state.ui._pauseTimeForInitial then
+      local text
+      if warehouses == 0 then
+        text = "Storage is full (50). Build a Warehouse to increase capacity (+100)."
+      else
+        text = string.format("Storage is full (%d). Build another Warehouse to increase capacity (+100).", cap)
+      end
+      state.ui.promptText = text
+      state.ui.promptT = 0
+      state.ui.promptDuration = 9999
+      state.ui.promptSticky = false
+      state.ui._lastCapacityPrompted = cap
+    else
+      -- Not full anymore or still in initial placement; clear prompt
+      if state.ui.promptText and state.ui._lastCapacityPrompted then
+        state.ui.promptText = nil
+        state.ui.promptDuration = 0
+        state.ui.promptSticky = false
+      end
+    end
+  end
+
   -- Systems
-  workers.update(state, sdt)
+  if not isInitial then
+    workers.update(state, sdt)
+  end
   buildings.update(state, sdt)
   particles.update(state.game.particles, sdt)
   trees.updateShake(state, sdt)
 
   -- Preview timer for pulsing outline
   state.ui.previewT = state.ui.previewT + sdt
+  -- Prompt timer
+  if state.ui.promptText and state.ui.promptDuration and state.ui.promptDuration > 0 then
+    state.ui.promptT = (state.ui.promptT or 0) + sdt
+    if state.ui.promptT > state.ui.promptDuration then
+      state.ui.promptText = nil
+      state.ui.promptT = 0
+      state.ui.promptDuration = 0
+    end
+  end
 
   -- Mouse edge panning (not speed-scaled)
   local mx, my = love.mouse.getPosition()
@@ -269,6 +342,7 @@ function love.draw()
   ui.drawBuildMenu(state, state.buildingDefs)
   ui.drawHUD(state)
   ui.drawMiniMap(state)
+  ui.drawPrompt(state)
 
   local sel = state.ui.selectedBuilding
   if sel and (sel.type == 'lumberyard' or sel.type == 'builder') then
@@ -324,6 +398,49 @@ local function hitTestBuildingAt(state, tileX, tileY)
 end
 
 function love.mousepressed(x, y, button)
+  -- During initial free placement, block all interactions except left-click placement
+  if state.ui._isFreeInitialBuilder then
+    if button ~= 1 then return end
+    -- allow minimap navigation to find a placement spot
+    local mm = state.ui._miniMap
+    if mm and x >= mm.x and x <= mm.x + mm.w and y >= mm.y and y <= mm.y + mm.h then
+      local TILE = C.TILE_SIZE
+      local screenW, screenH = love.graphics.getDimensions()
+      local worldX = (x - mm.x) / mm.scale * TILE
+      local worldY = (y - mm.y) / mm.scale * TILE
+      state.camera.x = utils.clamp(worldX - (screenW / state.camera.scale) / 2, 0, state.world.tilesX * TILE - (screenW / state.camera.scale))
+      state.camera.y = utils.clamp(worldY - (screenH / state.camera.scale) / 2, 0, state.world.tilesY * TILE - (screenH / state.camera.scale))
+      return
+    end
+    -- ensure we're placing builder
+    state.ui.isPlacingBuilding = true
+    state.ui.selectedBuildingType = 'builder'
+    local tileX, tileY = screenToTile(x, y)
+    if buildings.canPlaceAt(state, tileX, tileY) then
+      local newB = buildings.place(state, 'builder', tileX, tileY)
+      -- complete instantly and start day with prompt
+      newB.construction.progress = newB.construction.required
+      newB.construction.complete = true
+      local res = state.buildingDefs.builder.residents or 0
+      state.game.population.total = (state.game.population.total or 0) + res
+      -- auto-assign 2 workers if available
+      local toAssign = math.min(2, state.buildingDefs.builder.numWorkers or 0)
+      for i = 1, toAssign do
+        require('src.buildings').assignOne(state, newB)
+      end
+      state.ui._isFreeInitialBuilder = nil
+      state.ui._pauseTimeForInitial = nil
+      state.ui.promptText = "Your Builders Workplace is ready. The first day begins!"
+      state.ui.promptT = 0
+      state.ui.promptDuration = 5
+      state.time.t = state.time.dayLength * 0.25
+      state.time.normalized = state.time.t / state.time.dayLength
+      state.ui.isPlacingBuilding = false
+      state.ui.selectedBuildingType = nil
+    end
+    return
+  end
+
   if state.ui.isPaused and not state.ui.isBuildMenuOpen then
     if button == 1 then handlePauseMenuClick(x, y) end
     return
@@ -486,6 +603,14 @@ function love.mousepressed(x, y, button)
         local res = state.buildingDefs.builder.residents or 0
         state.game.population.total = (state.game.population.total or 0) + res
         state.ui._isFreeInitialBuilder = nil
+        state.ui._pauseTimeForInitial = nil
+        -- Prompt player and start first day
+        state.ui.promptText = "Your Builders Workplace is ready. The first day begins!"
+        state.ui.promptT = 0
+        state.ui.promptDuration = 5
+        -- Start time at morning
+        state.time.t = state.time.dayLength * 0.25
+        state.time.normalized = state.time.t / state.time.dayLength
       end
       state.ui.isPlacingBuilding = false
       state.ui.selectedBuildingType = nil
@@ -495,102 +620,57 @@ function love.mousepressed(x, y, button)
 end
 
 function love.keypressed(key)
+  if state.ui._isFreeInitialBuilder then
+    return
+  end
   if key == 'escape' then
     if state.ui.isBuildMenuOpen then
       state.ui.isBuildMenuOpen = false
-      return
+    else
+      if state.ui.isPlacingBuilding then
+        state.ui.isPlacingBuilding = false
+        state.ui.selectedBuildingType = nil
+      else
+        state.ui.isPaused = not state.ui.isPaused
+      end
     end
-    if state.ui.isPlacingBuilding then
+  elseif key == 'c' then
+    state.ui.isBuildMenuOpen = not state.ui.isBuildMenuOpen
+    if state.ui.isBuildMenuOpen then
       state.ui.isPlacingBuilding = false
       state.ui.selectedBuildingType = nil
-      return
     end
-    state.ui.isPaused = not state.ui.isPaused
-    return
-  end
-
-  if key == 'b' then
-    state.ui.isBuildMenuOpen = not state.ui.isBuildMenuOpen
-    state.ui.isPlacingRoad = false
-    state.ui.roadStartTile = nil
-    return
-  end
-
-  if key == 'r' then
+  elseif key == 'r' then
     state.ui.isPlacingRoad = not state.ui.isPlacingRoad
-    state.ui.isBuildMenuOpen = false
     state.ui.isPlacingBuilding = false
     state.ui.selectedBuildingType = nil
-    return
-  end
-
-  if key == 'v' then
+  elseif key == 'v' then
     state.ui.isVillagersPanelOpen = not state.ui.isVillagersPanelOpen
-    return
-  end
-
-  if key == 'p' then
-    state.ui.isPaused = not state.ui.isPaused
-    return
-  end
-
-  if key == '1' then state.time.speed = 1; return end
-  if key == '2' then state.time.speed = 2; return end
-  if key == '3' then state.time.speed = 4; return end
-  if key == '4' then state.time.speed = 8; return end
-
-  if key == '=' or key == '+' then
-    love.wheelmoved(0, 1)
-    return
-  end
-  if key == '-' then
-    love.wheelmoved(0, -1)
-    return
-  end
-  if key == '0' then
-    state.camera.scale = 1
-    local screenW, screenH = love.graphics.getDimensions()
-    local maxCamX = math.max(0, state.world.tilesX * TILE_SIZE - screenW / state.camera.scale)
-    local maxCamY = math.max(0, state.world.tilesY * TILE_SIZE - screenH / state.camera.scale)
-    state.camera.x = utils.clamp(state.camera.x, 0, maxCamX)
-    state.camera.y = utils.clamp(state.camera.y, 0, maxCamY)
-    return
-  end
-
-  if key == 'g' then
+  elseif key == '1' then
+    state.time.speed = 1
+  elseif key == '2' then
+    state.time.speed = 2
+  elseif key == '3' then
+    state.time.speed = 4
+  elseif key == '4' then
+    state.time.speed = 8
+  elseif key == '+' or key == '=' then
+    state.camera.scale = math.min(state.camera.maxScale or 2.5, (state.camera.scale or 1) + 0.1)
+  elseif key == '-' then
+    state.camera.scale = math.max(state.camera.minScale or 0.5, (state.camera.scale or 1) - 0.1)
+  elseif key == 'g' then
     state.ui.forceGrid = not state.ui.forceGrid
-    return
-  end
-  if key == 'm' then
-    state.ui.showMinimap = not state.ui.showMinimap
-    return
   end
 
-  if key == 'h' or key == 'l' or key == 'w' then
-    state.ui.isBuildMenuOpen = false
-    state.ui.isPlacingBuilding = true
-    local map = { h = 'house', l = 'lumberyard', w = 'warehouse' }
-    state.ui.selectedBuildingType = map[key]
-    return
-  end
-
-  if key == 'c' then
-    if state.ui.selectedBuilding then
-      local bx = state.ui.selectedBuilding.tileX * TILE_SIZE + TILE_SIZE / 2
-      local by = state.ui.selectedBuilding.tileY * TILE_SIZE + TILE_SIZE / 2
-      local screenW, screenH = love.graphics.getDimensions()
-      state.camera.x = utils.clamp(bx - (screenW / state.camera.scale) / 2, 0, state.world.tilesX * TILE_SIZE - (screenW / state.camera.scale))
-      state.camera.y = utils.clamp(by - (screenH / state.camera.scale) / 2, 0, state.world.tilesY * TILE_SIZE - (screenH / state.camera.scale))
+  -- Build menu quick shortcuts
+  if state.ui.isBuildMenuOpen then
+    local map = { h = 'house', l = 'lumberyard', w = 'warehouse', b = 'builder' }
+    local sel = map[key]
+    if sel then
+      state.ui.selectedBuildingType = sel
+      state.ui.isPlacingBuilding = true
+      state.ui.isBuildMenuOpen = false
     end
-    return
-  end
-
-  if key == 'tab' then
-    if #state.game.buildings > 0 then
-      state.ui.selectedIndex = (state.ui.selectedIndex % #state.game.buildings) + 1
-      state.ui.selectedBuilding = state.game.buildings[state.ui.selectedIndex]
-    end
-    return
   end
 end
 

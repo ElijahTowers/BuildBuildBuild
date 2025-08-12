@@ -37,7 +37,12 @@ state.ui = {
   showMinimap = true,
   forceGrid = false,
   showHelp = false,
-  selectedIndex = 0
+  selectedIndex = 0,
+  -- prompt message
+  promptText = nil,
+  promptT = 0,
+  promptDuration = 0,
+  promptSticky = false
 }
 
 -- Resources, population and world entities

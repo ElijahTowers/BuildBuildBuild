@@ -9,6 +9,37 @@ local particles = require('src.particles')
 
 local workers = {}
 
+-- Capacity helpers
+local function countWarehouses(state)
+  local c = 0
+  for _, b in ipairs(state.game.buildings) do
+    if b.type == 'warehouse' then c = c + 1 end
+  end
+  return c
+end
+
+local function computeWoodTotals(state)
+  local base = state.game.resources.wood or 0
+  local stored = 0
+  for _, b in ipairs(state.game.buildings) do
+    if b.type == 'warehouse' and b.storage and b.storage.wood then
+      stored = stored + b.storage.wood
+    end
+  end
+  return base, stored, base + stored
+end
+
+local function computeWoodCapacity(state)
+  local baseCap = 50
+  local whCap = 100 * countWarehouses(state)
+  return baseCap + whCap
+end
+
+local function isWoodStorageFull(state)
+  local _, _, total = computeWoodTotals(state)
+  return total >= computeWoodCapacity(state)
+end
+
 -- Helpers restored after refactor
 local function getTreeShakeOffset(t)
   return trees.getShakeOffset(t)
@@ -76,6 +107,19 @@ local function findConstructionTarget(state, bx, by)
     end
   end
   return best
+end
+
+-- Auto-assign one worker to a worker building if there's free population and a free slot
+local function autoAssignOneIfPossible(state, b)
+  if not b or (b.type ~= 'lumberyard' and b.type ~= 'builder') then return end
+  local def = state.buildingDefs[b.type]
+  local free = (state.game.population.total or 0) - (state.game.population.assigned or 0)
+  if free <= 0 then return end
+  local maxSlots = def and def.numWorkers or 0
+  if (b.assigned or 0) >= maxSlots then return end
+  b.assigned = (b.assigned or 0) + 1
+  state.game.population.assigned = (state.game.population.assigned or 0) + 1
+  workers.spawnAssignedWorker(state, b)
 end
 
 -- Persistent villager creation
@@ -177,6 +221,7 @@ local function goTo(w, px, py, speed, dt)
   return false
 end
 
+-- Update persistent villagers (movement and idle)
 local function updateVillagers(state, dt)
   local isDay = (state.time.normalized >= 0.25 and state.time.normalized < 0.75)
   local TILE = constants.TILE_SIZE
@@ -223,6 +268,7 @@ function workers.update(state, dt)
   for _, b in ipairs(state.game.buildings) do
     if b.type == "lumberyard" then
       ensureWorkerCount(state, b)
+      local storageFull = isWoodStorageFull(state)
       if b.workers then
         for _, w in ipairs(b.workers) do
           local def = state.buildingDefs.lumberyard
@@ -253,6 +299,14 @@ function workers.update(state, dt)
             if goTo(w, cx, cy, def.workerSpeed, dt) then
               w.state = 'idle'
             end
+            goto continue
+          end
+
+          -- If storage full, stop working and idle at workplace
+          if storageFull then
+            local cx = b.tileX * TILE + TILE / 2
+            local cy = b.tileY * TILE + TILE / 2
+            goTo(w, cx, cy, def.workerSpeed * 0.5, dt)
             goto continue
           end
 
@@ -349,11 +403,20 @@ function workers.update(state, dt)
             end
             if goTo(w, targetPx, targetPy, def.workerSpeed, dt) then
               if w.carryWood then
-                if wh then
-                  wh.storage = wh.storage or {}
-                  wh.storage.wood = (wh.storage.wood or 0) + def.woodPerTree
-                else
-                  state.game.resources.wood = (state.game.resources.wood or 0) + def.woodPerTree
+                local capacity = computeWoodCapacity(state)
+                local base, stored, total = computeWoodTotals(state)
+                local canAdd = math.max(0, capacity - total)
+                if canAdd > 0 then
+                  local add = math.min(canAdd, def.woodPerTree)
+                  if wh then
+                    wh.storage = wh.storage or {}
+                    wh.storage.wood = (wh.storage.wood or 0) + add
+                  else
+                    state.game.resources.wood = (state.game.resources.wood or 0) + add
+                    if countWarehouses(state) == 0 then
+                      state.game.resources.wood = math.min(50, state.game.resources.wood)
+                    end
+                  end
                 end
                 w.carryWood = false
               end
@@ -404,6 +467,8 @@ function workers.update(state, dt)
                       local cap = (state.buildingDefs.builder.residents or 0)
                       state.game.population.total = (state.game.population.total or 0) + cap
                     end
+                    -- auto-assign one worker to newly finished worker buildings
+                    autoAssignOneIfPossible(state, w.targetBuilding)
                   end
                 end
               end
