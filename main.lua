@@ -27,6 +27,13 @@ local function getMouseTile()
   return tileX, tileY
 end
 
+-- Convert explicit screen coords to tile (use for click handling to avoid drift)
+local function screenToTile(sx, sy)
+  local worldX = state.camera.x + sx / state.camera.scale
+  local worldY = state.camera.y + sy / state.camera.scale
+  return math.floor(worldX / TILE_SIZE), math.floor(worldY / TILE_SIZE)
+end
+
 -- Returns true if mouse is over any UI panel (build button or build menu)
 local function isOverUI(mx, my)
   if ui.isOverBuildButton(mx, my) then return true end
@@ -443,7 +450,7 @@ function love.mousepressed(x, y, button)
   end
 
   if state.ui.isPlacingRoad then
-    local tx, ty = getMouseTile()
+    local tx, ty = screenToTile(x, y)
     if not state.ui.roadStartTile then
       state.ui.roadStartTile = { x = tx, y = ty }
       return
@@ -457,14 +464,14 @@ function love.mousepressed(x, y, button)
   end
 
   if not state.ui.isPlacingBuilding then
-    local tileX, tileY = getMouseTile()
+    local tileX, tileY = screenToTile(x, y)
     local b = hitTestBuildingAt(state, tileX, tileY)
     state.ui.selectedBuilding = b
     if b then return end
   end
 
   if state.ui.isPlacingBuilding and state.ui.selectedBuildingType then
-    local tileX, tileY = getMouseTile()
+    local tileX, tileY = screenToTile(x, y)
     if not isOverUI(x, y)
       and buildings.canPlaceAt(state, tileX, tileY)
       and (state.ui._isFreeInitialBuilder or buildings.canAfford(state, state.ui.selectedBuildingType)) then
