@@ -11,6 +11,7 @@ local particles = require('src.particles')
 local buildings = require('src.buildings')
 local workers = require('src.workers')
 local ui = require('src.ui')
+local save = require('src.save')
 local roads = require('src.roads')
 
 -- Shorthand
@@ -127,6 +128,10 @@ local function handlePauseMenuClick(x, y)
     if b and utils.isPointInRect(x, y, b.x, b.y, b.w, b.h) then
       if opt.key == 'resume' then
         state.ui.isPaused = false
+      elseif opt.key == 'save' then
+        state.ui._saveLoadMode = 'save'
+      elseif opt.key == 'load' then
+        state.ui._saveLoadMode = 'load'
       elseif opt.key == 'restart' then
         state.restart()
         trees.generate(state)
@@ -442,7 +447,44 @@ function love.mousepressed(x, y, button)
   end
 
   if state.ui.isPaused and not state.ui.isBuildMenuOpen then
-    if button == 1 then handlePauseMenuClick(x, y) end
+    if button == 1 then
+      -- Handle save/load slot selection overlay if active
+      if state.ui._saveLoadMode and state.ui._saveLoadButtons then
+        for _, b in ipairs(state.ui._saveLoadButtons) do
+          if x >= b.x and x <= b.x + b.w and y >= b.y and y <= b.y + b.h then
+            if b.cancel then
+              state.ui._saveLoadMode = nil
+              return
+            end
+            local slot = b.slot or 1
+            if state.ui._saveLoadMode == 'save' then
+              save.saveToSlot(state, slot)
+              state.ui.promptText = string.format("Saved to slot %d.", slot)
+              state.ui.promptT = 0
+              state.ui.promptDuration = 2
+              state.ui.promptSticky = false
+              state.ui._saveLoadMode = nil
+            else
+              local ok, err = save.loadFromSlot(state, slot)
+              if ok then
+                state.ui.promptText = string.format("Loaded slot %d.", slot)
+                state.ui.promptT = 0
+                state.ui.promptDuration = 2
+                state.ui.promptSticky = false
+                state.ui._saveLoadMode = nil
+              else
+                state.ui.promptText = "Load failed: " .. tostring(err)
+                state.ui.promptT = 0
+                state.ui.promptDuration = 3
+                state.ui.promptSticky = false
+              end
+            end
+            return
+          end
+        end
+      end
+      handlePauseMenuClick(x, y)
+    end
     return
   end
 
@@ -663,6 +705,25 @@ function love.keypressed(key)
     state.camera.scale = math.max(state.camera.minScale or 0.5, (state.camera.scale or 1) - 0.1)
   elseif key == 'g' then
     state.ui.forceGrid = not state.ui.forceGrid
+  elseif key == 'F5' or key == 's' and (love.keyboard.isDown('lctrl') or love.keyboard.isDown('rctrl')) then
+    save.saveToSlot(state, 1)
+    state.ui.promptText = "Game saved."
+    state.ui.promptT = 0
+    state.ui.promptDuration = 2
+    state.ui.promptSticky = false
+  elseif key == 'F9' or key == 'l' and (love.keyboard.isDown('lctrl') or love.keyboard.isDown('rctrl')) then
+    local ok, err = save.loadFromSlot(state, 1)
+    if ok then
+      state.ui.promptText = "Game loaded."
+      state.ui.promptT = 0
+      state.ui.promptDuration = 2
+      state.ui.promptSticky = false
+    else
+      state.ui.promptText = "Load failed: " .. tostring(err)
+      state.ui.promptT = 0
+      state.ui.promptDuration = 3
+      state.ui.promptSticky = false
+    end
   end
 
   -- Build menu quick shortcuts

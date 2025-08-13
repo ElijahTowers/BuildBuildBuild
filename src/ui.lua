@@ -31,6 +31,8 @@ ui.pauseMenu = {
   optionSpacing = 10,
   options = {
     { key = "resume", label = "Resume" },
+    { key = "save", label = "Save (F5 / Ctrl+S)" },
+    { key = "load", label = "Load (F9 / Ctrl+L)" },
     { key = "restart", label = "Restart" },
     { key = "quit", label = "Quit" }
   }
@@ -457,8 +459,55 @@ function ui.drawPauseMenu(state)
     love.graphics.rectangle("line", ox, btnY, btnW, btnH, 8, 8)
     love.graphics.setColor(colors.text)
     love.graphics.printf(opt.label, ox, btnY + 12, btnW, "center")
-
     opt._bounds = { x = ox, y = btnY, w = btnW, h = btnH }
+  end
+
+  -- Save/Load slot dialog overlay
+  if state.ui._saveLoadMode then
+    local title = state.ui._saveLoadMode == 'save' and 'Select save slot' or 'Select load slot'
+    local w, h = 360, 240
+    local x = (screenW - w) / 2
+    local y = (screenH - h) / 2
+    love.graphics.setColor(0, 0, 0, 0.55)
+    love.graphics.rectangle('fill', 0, 0, screenW, screenH)
+    love.graphics.setColor(colors.uiPanel)
+    love.graphics.rectangle('fill', x, y, w, h, 10, 10)
+    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.rectangle('line', x, y, w, h, 10, 10)
+    love.graphics.setColor(colors.text)
+    love.graphics.printf(title, x, y + 14, w, 'center')
+
+    local btns = {}
+    local btnW, btnH = w - 40, 40
+    local bx = x + 20
+    local by = y + 60
+    for slot = 1, 3 do
+      local exists = love.filesystem.getInfo(string.format('save_%d.json', slot)) ~= nil
+      local mx, my = love.mouse.getPosition()
+      local hovered = utils.isPointInRect(mx, my, bx, by, btnW, btnH)
+      love.graphics.setColor(hovered and colors.buttonHover or colors.button)
+      love.graphics.rectangle('fill', bx, by, btnW, btnH, 8, 8)
+      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.rectangle('line', bx, by, btnW, btnH, 8, 8)
+      love.graphics.setColor(colors.text)
+      local label = exists and string.format('Slot %d  (occupied)', slot) or string.format('Slot %d  (empty)', slot)
+      love.graphics.printf(label, bx, by + 10, btnW, 'center')
+      table.insert(btns, { x = bx, y = by, w = btnW, h = btnH, slot = slot })
+      by = by + btnH + 10
+    end
+    -- Cancel button
+    local hovered = utils.isPointInRect(love.mouse.getX(), love.mouse.getY(), bx, y + h - 20 - btnH, btnW, btnH)
+    love.graphics.setColor(hovered and colors.buttonHover or colors.button)
+    love.graphics.rectangle('fill', bx, y + h - 20 - btnH, btnW, btnH, 8, 8)
+    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.rectangle('line', bx, y + h - 20 - btnH, btnW, btnH, 8, 8)
+    love.graphics.setColor(colors.text)
+    love.graphics.printf('Cancel', bx, y + h - 20 - btnH + 10, btnW, 'center')
+    table.insert(btns, { x = bx, y = y + h - 20 - btnH, w = btnW, h = btnH, cancel = true })
+
+    state.ui._saveLoadButtons = btns
+  else
+    state.ui._saveLoadButtons = nil
   end
 end
 
