@@ -202,7 +202,7 @@ function love.update(dt)
     local cap = computeWoodCapacity()
     local warehouses = countWarehouses()
 
-    if totalWood >= cap and not state.ui._pauseTimeForInitial then
+    if totalWood >= cap and not state.ui._pauseTimeForInitial and state.game.resources._spentAny then
       local text
       if warehouses == 0 then
         text = "Storage is full (50). Build a Warehouse to increase capacity (+100)."
@@ -630,6 +630,9 @@ function love.keypressed(key)
       if state.ui.isPlacingBuilding then
         state.ui.isPlacingBuilding = false
         state.ui.selectedBuildingType = nil
+      elseif state.ui.isPlacingRoad then
+        state.ui.isPlacingRoad = false
+        state.ui.roadStartTile = nil
       else
         state.ui.isPaused = not state.ui.isPaused
       end

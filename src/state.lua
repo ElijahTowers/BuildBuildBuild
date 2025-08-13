@@ -42,12 +42,14 @@ state.ui = {
   promptText = nil,
   promptT = 0,
   promptDuration = 0,
-  promptSticky = false
+  promptSticky = false,
+  -- world rendering options
+  showWorldVillagerDots = false
 }
 
 -- Resources, population and world entities
 state.game = {
-  resources = { wood = 50 },
+  resources = { wood = 50, _spentAny = false },
   productionRates = { wood = 0 },
   population = { total = 0, assigned = 0, capacity = 0 },
   buildings = {},

@@ -92,6 +92,7 @@ function roads.placePath(state, path)
     end
   end
   state.game.resources.wood = (state.game.resources.wood or 0) - placed * costPer
+  if placed > 0 and costPer > 0 then state.game.resources._spentAny = true end
   if placed > 0 then return true, placed else return false, 0 end
 end
 

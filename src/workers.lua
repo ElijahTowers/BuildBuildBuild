@@ -109,6 +109,17 @@ local function findConstructionTarget(state, bx, by)
   return best
 end
 
+-- Remove a persistent villager from global list
+local function removeVillager(state, villager)
+  if not villager then return end
+  for i, v in ipairs(state.game.villagers) do
+    if v == villager then
+      table.remove(state.game.villagers, i)
+      return
+    end
+  end
+end
+
 -- Auto-assign one worker to a worker building if there's free population and a free slot
 local function autoAssignOneIfPossible(state, b)
   if not b or (b.type ~= 'lumberyard' and b.type ~= 'builder') then return end
@@ -193,11 +204,15 @@ function workers.spawnAssignedWorker(state, b)
   end
 end
 
+-- Ensure active worker list matches assigned; remove associated villager when shrinking
 local function ensureWorkerCount(state, b)
   b.workers = b.workers or {}
   local desired = b.assigned or 0
   while #b.workers > desired do
-    table.remove(b.workers)
+    local removed = table.remove(b.workers)
+    if removed and removed.villagerRef then
+      removeVillager(state, removed.villagerRef)
+    end
   end
   while #b.workers < desired do
     workers.spawnAssignedWorker(state, b)
@@ -254,6 +269,7 @@ local function updateVillagers(state, dt)
 end
 
 local function drawVillagers(state)
+  if not state.ui.showWorldVillagerDots then return end
   for _, v in ipairs(state.game.villagers) do
     love.graphics.setColor(colors.worker)
     love.graphics.rectangle('fill', v.x - 4, v.y - 4, 8, 8, 2, 2)

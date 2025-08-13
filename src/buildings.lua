@@ -8,6 +8,49 @@ local particles = require('src.particles')
 local colors = constants.colors
 local workers = require('src.workers')
 
+-- Image cache for building icons
+local imageCache = {}
+local function getImageMeta(typ)
+  if imageCache[typ] ~= nil then return imageCache[typ] end
+  local path = string.format('assets/%s.png', typ)
+  if not love.filesystem.getInfo(path) then
+    imageCache[typ] = false
+    return imageCache[typ]
+  end
+  local okData, data = pcall(love.image.newImageData, path)
+  local okImg, img = pcall(love.graphics.newImage, path)
+  if not okData or not okImg then
+    imageCache[typ] = false
+    return imageCache[typ]
+  end
+  local w, h = data:getWidth(), data:getHeight()
+  local minX, minY = w - 1, h - 1
+  local maxX, maxY = 0, 0
+  local found = false
+  for y = 0, h - 1 do
+    for x = 0, w - 1 do
+      local _, _, _, a = data:getPixel(x, y)
+      if a and a > 0.02 then
+        found = true
+        if x < minX then minX = x end
+        if x > maxX then maxX = x end
+        if y < minY then minY = y end
+        if y > maxY then maxY = y end
+      end
+    end
+  end
+  local ox, oy
+  if found then
+    ox = (minX + maxX) / 2
+    oy = (minY + maxY) / 2
+  else
+    ox = w / 2
+    oy = h / 2
+  end
+  imageCache[typ] = { img = img, iw = w, ih = h, ox = ox, oy = oy }
+  return imageCache[typ]
+end
+
 local buildings = {}
 
 function buildings.canAfford(state, buildingType)
@@ -28,6 +71,7 @@ end
 function buildings.payCost(state, buildingType)
   local def = state.buildingDefs[buildingType]
   if not def or not def.cost then return end
+  state.game.resources._spentAny = true
   local neededWood = def.cost.wood or 0
   if neededWood > 0 then
     local base = state.game.resources.wood or 0
@@ -76,7 +120,7 @@ function buildings.place(state, buildingType, tileX, tileY)
     tileX = tileX,
     tileY = tileY,
     color = color,
-    anim = { appear = 0, t = 0, sawAngle = 0, active = false },
+    anim = { appear = 0, t = 0, active = false },
     assigned = 0,
     currentResidents = 0,
     storage = { wood = 0 },
@@ -86,7 +130,6 @@ function buildings.place(state, buildingType, tileX, tileY)
       complete = (buildingType == 'house' and false) or false
     }
   }
-  -- Buildings start under construction unless builder itself? Keep builder also needs construction
   table.insert(state.game.buildings, newB)
 
   if buildingType == 'house' then
@@ -107,7 +150,7 @@ end
 
 function buildings.update(state, dt)
   for _, b in ipairs(state.game.buildings) do
-    b.anim = b.anim or { appear = 1, t = 0, sawAngle = 0, active = false }
+    b.anim = b.anim or { appear = 1, t = 0, active = false }
     if b.anim.appear < 1 then b.anim.appear = math.min(1, b.anim.appear + dt * 3.0) end
     b.anim.t = (b.anim.t or 0) + dt
 
@@ -132,7 +175,6 @@ function buildings.assignOne(state, b)
     if free <= 0 or (b.assigned or 0) >= maxSlots then return false end
     b.assigned = (b.assigned or 0) + 1
     state.game.population.assigned = (state.game.population.assigned or 0) + 1
-    -- spawn a generic villager that idles at builder workplace (reuse workers.spawnAssignedWorker with work b itself)
     workers.spawnAssignedWorker(state, b)
     return true
   end
@@ -145,6 +187,25 @@ function buildings.unassignOne(state, b)
   b.assigned = b.assigned - 1
   state.game.population.assigned = state.game.population.assigned - 1
   return true
+end
+
+local function drawTileBase(TILE_SIZE, color)
+  love.graphics.setColor(color)
+  love.graphics.rectangle("fill", -TILE_SIZE / 2, -TILE_SIZE / 2, TILE_SIZE, TILE_SIZE, 6, 6)
+  love.graphics.setColor(colors.outline)
+  love.graphics.rectangle("line", -TILE_SIZE / 2, -TILE_SIZE / 2, TILE_SIZE, TILE_SIZE, 6, 6)
+end
+
+local function drawBuildingIcon(typ, TILE_SIZE, innerPad)
+  local meta = getImageMeta(typ)
+  if not meta or meta == false then return end
+  love.graphics.setColor(1, 1, 1, 1)
+  local iw, ih = meta.iw, meta.ih
+  local maxW = TILE_SIZE - innerPad * 2
+  local maxH = TILE_SIZE - innerPad * 2
+  -- Scale large and center using visual center (ignores transparent margins)
+  local s = math.min(maxW / iw, maxH / ih) * 1.12
+  love.graphics.draw(meta.img, 0, 0, 0, s, s, meta.ox, meta.oy)
 end
 
 function buildings.drawAll(state)
@@ -167,45 +228,11 @@ function buildings.drawAll(state)
     love.graphics.translate(cx, cy)
     love.graphics.scale(scale, scale)
 
-    love.graphics.setColor(b.color)
-    love.graphics.rectangle("fill", -TILE_SIZE / 2, -TILE_SIZE / 2, TILE_SIZE, TILE_SIZE, 4, 4)
-    love.graphics.setColor(colors.outline)
-    love.graphics.rectangle("line", -TILE_SIZE / 2, -TILE_SIZE / 2, TILE_SIZE, TILE_SIZE, 4, 4)
+    drawTileBase(TILE_SIZE, b.color)
 
-    if b.type == 'warehouse' then
-      love.graphics.setColor(0.45, 0.4, 0.35, 1)
-      love.graphics.rectangle('fill', -TILE_SIZE * 0.18, TILE_SIZE * 0.05, TILE_SIZE * 0.36, TILE_SIZE * 0.28, 2, 2)
-      love.graphics.setColor(0.65, 0.5, 0.3, 1)
-      love.graphics.rectangle('fill', -TILE_SIZE * 0.12, -TILE_SIZE * 0.1, TILE_SIZE * 0.24, TILE_SIZE * 0.12)
-    elseif b.type == 'lumberyard' then
-      if b.anim and b.anim.active then
-        local r = 6
-        local angle = (b.anim.sawAngle or 0)
-        love.graphics.setColor(colors.outline)
-        love.graphics.circle('line', 0, -TILE_SIZE * 0.35, r)
-        for i = 0, 5 do
-          local a = angle + i * (math.pi * 2 / 6)
-          local x1 = math.cos(a) * (r - 2)
-          local y1 = -TILE_SIZE * 0.35 + math.sin(a) * (r - 2)
-          local x2 = math.cos(a) * (r + 2)
-          local y2 = -TILE_SIZE * 0.35 + math.sin(a) * (r + 2)
-          love.graphics.line(x1, y1, x2, y2)
-        end
-      end
-    elseif b.type == 'house' then
-      local a = 0.3 + 0.2 * (0.5 + 0.5 * math.sin(t * 2.2))
-      love.graphics.setColor(1.0, 0.95, 0.7, a)
-      love.graphics.rectangle('fill', -TILE_SIZE * 0.15, -TILE_SIZE * 0.05, TILE_SIZE * 0.2, TILE_SIZE * 0.2, 2, 2)
-      love.graphics.setColor(0.3, 0.3, 0.35, 1)
-      love.graphics.rectangle('fill', TILE_SIZE * 0.18, -TILE_SIZE * 0.5 - TILE_SIZE * 0.35 + 6, 6, 10)
-    elseif b.type == 'builder' then
-      love.graphics.setColor(0.5, 0.4, 0.2, 1)
-      love.graphics.rectangle('fill', -TILE_SIZE * 0.2, -TILE_SIZE * 0.05, TILE_SIZE * 0.4, TILE_SIZE * 0.25)
-      love.graphics.setColor(colors.outline)
-      love.graphics.rectangle('line', -TILE_SIZE * 0.2, -TILE_SIZE * 0.05, TILE_SIZE * 0.4, TILE_SIZE * 0.25)
-      love.graphics.setColor(0.7, 0.6, 0.3, 1)
-      love.graphics.rectangle('fill', -TILE_SIZE * 0.1, -TILE_SIZE * 0.25, TILE_SIZE * 0.2, TILE_SIZE * 0.15)
-    end
+    -- draw icon if available
+    local innerPad = 0
+    drawBuildingIcon(b.type, TILE_SIZE, innerPad)
 
     -- Construction progress bar
     if b.construction and not b.construction.complete then
