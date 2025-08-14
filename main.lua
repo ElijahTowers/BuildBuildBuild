@@ -236,6 +236,7 @@ function love.update(dt)
   buildings.update(state, sdt)
   particles.update(state.game.particles, sdt)
   trees.updateShake(state, sdt)
+  roads.update(state, sdt)
 
   -- Preview timer for pulsing outline
   state.ui.previewT = state.ui.previewT + sdt

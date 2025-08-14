@@ -6,6 +6,7 @@ local colors = constants.colors
 local utils = require('src.utils')
 local trees = require('src.trees')
 local particles = require('src.particles')
+local roads = require('src.roads')
 
 local workers = {}
 
@@ -16,6 +17,45 @@ local function countWarehouses(state)
     if b.type == 'warehouse' then c = c + 1 end
   end
   return c
+end
+
+-- Find a helpful nearby road tile center to steer toward
+local function findRoadWaypoint(state, w, targetPx, targetPy)
+  local TILE = constants.TILE_SIZE
+  local wx, wy = w.x, w.y
+  local workerTileX = math.floor(wx / TILE)
+  local workerTileY = math.floor(wy / TILE)
+  local bestCx, bestCy, bestScore
+  local toTargetX, toTargetY = targetPx - wx, targetPy - wy
+  local toTargetLen = math.max(1e-6, math.sqrt(toTargetX * toTargetX + toTargetY * toTargetY))
+  local dirX, dirY = toTargetX / toTargetLen, toTargetY / toTargetLen
+  local maxRadiusTiles = 1 -- only immediate neighborhood for cheap steering
+  for dy = -maxRadiusTiles, maxRadiusTiles do
+    for dx = -maxRadiusTiles, maxRadiusTiles do
+      local tx = workerTileX + dx
+      local ty = workerTileY + dy
+      if roads.hasRoad(state, tx, ty) then
+        local cx = tx * TILE + TILE / 2
+        local cy = ty * TILE + TILE / 2
+        local vx, vy = cx - wx, cy - wy
+        local dist = math.sqrt(vx * vx + vy * vy)
+        -- must be reasonably close
+        if dist <= TILE * 0.9 then
+          -- must be roughly in the direction of travel
+          local dot = (vx * dirX + vy * dirY) / math.max(1e-6, dist)
+          if dot > 0.1 then
+            -- score favors closeness and alignment
+            local score = dist / (dot + 0.1)
+            if not bestScore or score < bestScore then
+              bestScore = score
+              bestCx, bestCy = cx, cy
+            end
+          end
+        end
+      end
+    end
+  end
+  return bestCx, bestCy
 end
 
 local function computeWoodTotals(state)
@@ -219,20 +259,56 @@ local function ensureWorkerCount(state, b)
   end
 end
 
-local function goTo(w, px, py, speed, dt)
+-- Movement with road bonus and steering
+local function goTo(w, px, py, speed, dt, state)
+  -- Optional steering to a nearby road tile when off-road
+  local TILE = constants.TILE_SIZE
+  local onRoad = roads.hasRoad(state, math.floor(w.x / TILE), math.floor(w.y / TILE))
+  if not onRoad then
+    if not w._waypoint or (math.abs(w._waypoint.x - w.x) + math.abs(w._waypoint.y - w.y)) < 2 then
+      local rpx, rpy = findRoadWaypoint(state, w, px, py)
+      if rpx and rpy then w._waypoint = { x = rpx, y = rpy } end
+    end
+    if w._waypoint then
+      px, py = w._waypoint.x, w._waypoint.y
+    end
+  else
+    w._waypoint = nil
+  end
+
   local dx = px - w.x
   local dy = py - w.y
   local dist = math.sqrt(dx * dx + dy * dy)
+  if dist < 1e-6 then
+    return true
+  end
+  local vx = dx / dist
+  local vy = dy / dist
+
+  -- Road speed bonus if current tile is a road
+  local tileX = math.floor(w.x / TILE)
+  local tileY = math.floor(w.y / TILE)
+  local mult = 1.0
+  if state and roads.hasRoad(state, tileX, tileY) then
+    mult = (state.game.roadSpeed and state.game.roadSpeed.onRoadMultiplier) or 1.5
+    w._onRoad = true
+    roads.markUsed(state, tileX, tileY)
+  else
+    w._onRoad = false
+  end
   local arriveDist = math.max(2, speed * dt * 0.6)
   if dist <= arriveDist then
     w.x = px
     w.y = py
+    if w._waypoint and math.abs(px - w._waypoint.x) + math.abs(py - w._waypoint.y) < 1 then
+      -- reached steering waypoint; clear so next step heads to original target
+      w._waypoint = nil
+      return false
+    end
     return true
   end
-  local vx = dx / (dist + 1e-6)
-  local vy = dy / (dist + 1e-6)
-  w.x = w.x + vx * speed * dt
-  w.y = w.y + vy * speed * dt
+  w.x = w.x + vx * speed * mult * dt
+  w.y = w.y + vy * speed * mult * dt
   return false
 end
 
@@ -247,7 +323,7 @@ local function updateVillagers(state, dt)
       if home then
         local hx = home.tileX * TILE + TILE / 2
         local hy = home.tileY * TILE + TILE / 2
-        if goTo(v, hx, hy, speed, dt) then
+        if goTo(v, hx, hy, speed, dt, state) then
           v.state = 'atHome'
         end
       end
@@ -257,7 +333,7 @@ local function updateVillagers(state, dt)
         if work then
           local wx = work.tileX * TILE + TILE / 2
           local wy = work.tileY * TILE + TILE / 2
-          if goTo(v, wx, wy, speed, dt) then
+          if goTo(v, wx, wy, speed, dt, state) then
             v.state = 'working'
           else
             v.state = 'toWork'
@@ -295,7 +371,7 @@ function workers.update(state, dt)
             if home then
               local hx = home.tileX * TILE + TILE / 2
               local hy = home.tileY * TILE + TILE / 2
-              if goTo(w, hx, hy, def.workerSpeed, dt) then
+              if goTo(w, hx, hy, def.workerSpeed, dt, state) then
                 w.state = 'idle'
                 w.targetTreeIndex = nil
                 w.targetTileX, w.targetTileY = nil, nil
@@ -304,7 +380,7 @@ function workers.update(state, dt)
             else
               local cx = b.tileX * TILE + TILE / 2
               local cy = b.tileY * TILE + TILE / 2
-              goTo(w, cx, cy, def.workerSpeed, dt)
+              goTo(w, cx, cy, def.workerSpeed, dt, state)
             end
             goto continue
           end
@@ -312,7 +388,7 @@ function workers.update(state, dt)
           if w.state == 'toWork' then
             local cx = b.tileX * TILE + TILE / 2
             local cy = b.tileY * TILE + TILE / 2
-            if goTo(w, cx, cy, def.workerSpeed, dt) then
+            if goTo(w, cx, cy, def.workerSpeed, dt, state) then
               w.state = 'idle'
             end
             goto continue
@@ -322,7 +398,7 @@ function workers.update(state, dt)
           if storageFull then
             local cx = b.tileX * TILE + TILE / 2
             local cy = b.tileY * TILE + TILE / 2
-            goTo(w, cx, cy, def.workerSpeed * 0.5, dt)
+            goTo(w, cx, cy, def.workerSpeed * 0.5, dt, state)
             goto continue
           end
 
@@ -367,7 +443,7 @@ function workers.update(state, dt)
               dirY = dirY / len
               local targetPx = centerX - dirX * approachDist
               local targetPy = centerY - dirY * approachDist
-              if goTo(w, targetPx, targetPy, def.workerSpeed, dt) then
+              if goTo(w, targetPx, targetPy, def.workerSpeed, dt, state) then
                 w.state = "chopping"
                 w.chopProgress = 0
                 w.swingProgress = 0
@@ -417,7 +493,7 @@ function workers.update(state, dt)
               targetPx = b.tileX * TILE + TILE / 2
               targetPy = b.tileY * TILE + TILE / 2
             end
-            if goTo(w, targetPx, targetPy, def.workerSpeed, dt) then
+            if goTo(w, targetPx, targetPy, def.workerSpeed, dt, state) then
               if w.carryWood then
                 local capacity = computeWoodCapacity(state)
                 local base, stored, total = computeWoodTotals(state)
@@ -457,7 +533,7 @@ function workers.update(state, dt)
             if home then
               local hx = home.tileX * TILE + TILE / 2
               local hy = home.tileY * TILE + TILE / 2
-              goTo(w, hx, hy, speed, dt)
+              goTo(w, hx, hy, speed, dt, state)
             end
             w.mode = nil
             w.targetBuilding = nil
@@ -469,7 +545,7 @@ function workers.update(state, dt)
             if w.targetBuilding then
               local tx = w.targetBuilding.tileX * TILE + TILE / 2
               local ty = w.targetBuilding.tileY * TILE + TILE / 2
-              if goTo(w, tx, ty, speed, dt) then
+              if goTo(w, tx, ty, speed, dt, state) then
                 -- contribute to construction when near
                 local c = w.targetBuilding.construction
                 if c and not c.complete then
@@ -492,7 +568,7 @@ function workers.update(state, dt)
               -- idle at workplace
               local cx = b.tileX * TILE + TILE / 2
               local cy = b.tileY * TILE + TILE / 2
-              goTo(w, cx, cy, speed * 0.5, dt)
+              goTo(w, cx, cy, speed * 0.5, dt, state)
             end
           end
         end
@@ -506,6 +582,11 @@ function workers.draw(state)
   for _, b in ipairs(state.game.buildings) do
     if b.type == "lumberyard" and b.workers then
       for _, w in ipairs(b.workers) do
+        -- on-road streak
+        if w._onRoad then
+          love.graphics.setColor(1, 1, 1, 0.15)
+          love.graphics.rectangle('fill', w.x - 6, w.y + 7, 12, 2, 1, 1)
+        end
         love.graphics.setColor(0, 0, 0, 0.25)
         love.graphics.ellipse('fill', w.x, w.y + 6, 7, 3)
         love.graphics.setColor(colors.worker)
@@ -542,6 +623,10 @@ function workers.draw(state)
       end
     elseif b.type == 'builder' and b.workers then
       for _, w in ipairs(b.workers) do
+        if w._onRoad then
+          love.graphics.setColor(1, 1, 1, 0.15)
+          love.graphics.rectangle('fill', w.x - 6, w.y + 7, 12, 2, 1, 1)
+        end
         love.graphics.setColor(0, 0, 0, 0.25)
         love.graphics.ellipse('fill', w.x, w.y + 6, 7, 3)
         love.graphics.setColor(colors.worker)

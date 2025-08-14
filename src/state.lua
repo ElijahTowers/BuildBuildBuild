@@ -49,14 +49,15 @@ state.ui = {
 
 -- Resources, population and world entities
 state.game = {
-  resources = { wood = 50, _spentAny = false },
-  productionRates = { wood = 0 },
-  population = { total = 0, assigned = 0, capacity = 0 },
-  buildings = {},
-  trees = {},
-  particles = {},
-  roads = {}, -- map of road tiles
-  villagers = {} -- persistent villager entities
+	resources = { wood = 50, _spentAny = false },
+	productionRates = { wood = 0 },
+	population = { total = 0, assigned = 0, capacity = 0 },
+	buildings = {},
+	trees = {},
+	particles = {},
+	roads = {}, -- map of road tiles
+	villagers = {}, -- persistent villager entities
+	roadSpeed = { onRoadMultiplier = 1.5 } -- tuning for road speed bonus
 }
 
 -- Building definitions and balance
@@ -113,8 +114,10 @@ function state.restart()
   state.game.productionRates = { wood = 0 }
   state.game.population = { total = 0, assigned = 0, capacity = 0 }
   state.ui.isBuildMenuOpen = false
-  state.ui.isPlacingBuilding = false
-  state.ui.selectedBuildingType = nil
+  state.ui.isPlacingBuilding = true
+  state.ui.selectedBuildingType = 'builder'
+  state.ui._isFreeInitialBuilder = true
+  state.ui._pauseTimeForInitial = true
   state.ui.isPaused = false
   state.ui.buildMenuAlpha = 0
   state.ui.previewT = 0
@@ -124,11 +127,16 @@ function state.restart()
   state.ui.isVillagersPanelOpen = false
   state.ui._villagersPanelButtons = nil
   state.camera.x, state.camera.y = 0, 0
-  state.time.t = 0
-  state.time.normalized = 0
+  state.time.t = state.time.dayLength * 0.25
+  state.time.normalized = state.time.t / state.time.dayLength
   state.time.speed = 1
   state.time.lastIsDay = nil
   state.time.preNightSpeed = 1
+  -- prompt instruction
+  state.ui.promptText = "Place your Builders Workplace for free. Left-click a tile to place."
+  state.ui.promptT = 0
+  state.ui.promptDuration = 9999
+  state.ui.promptSticky = false
 end
 
 return state 

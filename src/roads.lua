@@ -13,11 +13,59 @@ local function key(x, y) return x .. "," .. y end
 -- Ensure roads table exists in state
 local function ensureState(state)
   state.game.roads = state.game.roads or {}
+  state.game.roadsUsage = state.game.roadsUsage or {}
+end
+
+-- Sum total wood across base and warehouses
+local function computeTotalWood(state)
+  local total = state.game.resources.wood or 0
+  for _, b in ipairs(state.game.buildings or {}) do
+    if b.type == 'warehouse' and b.storage and b.storage.wood then
+      total = total + b.storage.wood
+    end
+  end
+  return total
+end
+
+-- Pay wood cost, draining base first then warehouses
+local function payWood(state, amount)
+  local remain = amount
+  local base = state.game.resources.wood or 0
+  local take = math.min(base, remain)
+  state.game.resources.wood = base - take
+  remain = remain - take
+  if remain > 0 then
+    for _, b in ipairs(state.game.buildings or {}) do
+      if remain <= 0 then break end
+      if b.type == 'warehouse' then
+        b.storage = b.storage or {}
+        local w = b.storage.wood or 0
+        local t = math.min(w, remain)
+        b.storage.wood = w - t
+        remain = remain - t
+      end
+    end
+  end
 end
 
 function roads.hasRoad(state, x, y)
   ensureState(state)
   return state.game.roads[key(x, y)] ~= nil
+end
+
+function roads.markUsed(state, x, y)
+  ensureState(state)
+  local k = key(x, y)
+  state.game.roadsUsage[k] = math.min(1.0, (state.game.roadsUsage[k] or 0) + 0.5)
+end
+
+function roads.update(state, dt)
+  ensureState(state)
+  local decay = 1.5 * dt
+  for k, v in pairs(state.game.roadsUsage) do
+    v = v - decay
+    if v <= 0 then state.game.roadsUsage[k] = nil else state.game.roadsUsage[k] = v end
+  end
 end
 
 -- Bounds and collisions (no buildings or trees on tile)
@@ -62,8 +110,8 @@ end
 -- Count placeable tiles and affordability
 local function countPlaceableAndAffordable(state, path)
   local costPer = (state.buildingDefs.road.costPerTile and state.buildingDefs.road.costPerTile.wood) or 0
-  local wood = state.game.resources.wood or 0
-  local affordableTiles = math.floor(wood / math.max(1, costPer))
+  local totalWood = computeTotalWood(state)
+  local affordableTiles = costPer > 0 and math.floor(totalWood / costPer) or #path
   local count = 0
   for i = 1, #path do
     local p = path[i]
@@ -91,8 +139,9 @@ function roads.placePath(state, path)
       placed = placed + 1
     end
   end
-  state.game.resources.wood = (state.game.resources.wood or 0) - placed * costPer
-  if placed > 0 and costPer > 0 then state.game.resources._spentAny = true end
+  if placed > 0 and costPer > 0 then
+    payWood(state, placed * costPer)
+  end
   if placed > 0 then return true, placed else return false, 0 end
 end
 
@@ -131,6 +180,15 @@ function roads.draw(state)
     end
     if has(state, x - 1, y) then
       love.graphics.rectangle('fill', px + 2, py + 6, TILE / 2 - 3, TILE - 12)
+    end
+
+    -- usage glow
+    local u = state.game.roadsUsage[key(x, y)] or 0
+    if u > 0 then
+      love.graphics.setColor(1.0, 1.0, 0.6, 0.25 * u)
+      love.graphics.rectangle('fill', px + 2, py + 2, TILE - 4, TILE - 4, 6, 6)
+      love.graphics.setColor(1.0, 0.95, 0.5, 0.3 * u)
+      love.graphics.rectangle('line', px + 2, py + 2, TILE - 4, TILE - 4, 6, 6)
     end
 
     -- outline (low alpha)
