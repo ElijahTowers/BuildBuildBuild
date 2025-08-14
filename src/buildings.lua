@@ -189,6 +189,44 @@ function buildings.unassignOne(state, b)
   return true
 end
 
+function buildings.demolish(state, b)
+  if not b then return false end
+  -- Remove from list
+  local idx
+  for i, bb in ipairs(state.game.buildings) do if bb == b then idx = i; break end end
+  if not idx then return false end
+
+  -- Refund 50% of wood cost
+  local def = state.buildingDefs[b.type]
+  local refund = 0
+  if def and def.cost and def.cost.wood then
+    refund = math.floor((def.cost.wood * 0.5) + 0.5)
+  end
+  if refund > 0 then
+    -- Prefer putting refund into base resources
+    state.game.resources.wood = (state.game.resources.wood or 0) + refund
+  end
+
+  -- Adjust population if house or builder (capacity)
+  if b.type == 'house' then
+    local cap = (state.buildingDefs.house.residents or 0)
+    state.game.population.capacity = math.max(0, (state.game.population.capacity or 0) - cap)
+    state.game.population.total = math.max(0, (state.game.population.total or 0) - cap)
+  elseif b.type == 'builder' then
+    local cap = (state.buildingDefs.builder.residents or 0)
+    state.game.population.capacity = math.max(0, (state.game.population.capacity or 0) - cap)
+    state.game.population.total = math.max(0, (state.game.population.total or 0) - cap)
+  end
+
+  -- Free assigned workers count
+  if b.assigned and b.assigned > 0 then
+    state.game.population.assigned = math.max(0, (state.game.population.assigned or 0) - b.assigned)
+  end
+
+  table.remove(state.game.buildings, idx)
+  return true
+end
+
 local function drawTileBase(TILE_SIZE, color)
   love.graphics.setColor(color)
   love.graphics.rectangle("fill", -TILE_SIZE / 2, -TILE_SIZE / 2, TILE_SIZE, TILE_SIZE, 6, 6)

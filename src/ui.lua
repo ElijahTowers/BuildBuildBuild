@@ -11,6 +11,7 @@ ui.buildButton = { x = 16, y = 16, width = 120, height = 40, label = "Build" }
 ui.roadButton = { x = 16 + 120 + 8, y = 16, width = 120, height = 40, label = "Roads" }
 ui.villagersButton = { x = 16 + (120 + 8) * 2, y = 16, width = 140, height = 40, label = "Villagers" }
 
+
 ui.buildMenu = {
   x = 16, -- not used for drawing when centered, kept for compatibility
   y = 72, -- not used for drawing when centered, kept for compatibility
@@ -86,6 +87,8 @@ function ui.isOverVillagersButton(mx, my)
   local b = ui.villagersButton
   return utils.isPointInRect(mx, my, b.x, b.y, b.width, b.height)
 end
+
+
 
 function ui.isOverBuildMenu(mx, my)
   local x, y, w, h = ui.getBuildMenuRect()
@@ -395,6 +398,12 @@ function ui.drawHUD(state)
     love.graphics.print(string.format("Road: click-drag to build, cost %d wood/tile. Right click to cancel.", costPer), x + 12, y + 30)
   end
 
+  -- demolish hint
+  if state.ui.isDemolishMode then
+    love.graphics.setColor(colors.text)
+    love.graphics.print("Demolish Mode: click a building to remove (refund 50%)", x + 12, y + 60)
+  end
+
   ui.drawVillagersPanel(state)
 end
 
@@ -509,6 +518,35 @@ function ui.drawPauseMenu(state)
   else
     state.ui._saveLoadButtons = nil
   end
+end
+
+function ui.drawSelectedPanel(state)
+  local sel = state.ui.selectedBuilding
+  if not sel then return end
+  local mx, my = 16, love.graphics.getHeight() - 120
+  local panelW, panelH = 360, 100
+  love.graphics.setColor(colors.uiPanel)
+  love.graphics.rectangle('fill', mx, my, panelW, panelH, 8, 8)
+  love.graphics.setColor(colors.uiPanelOutline)
+  love.graphics.rectangle('line', mx, my, panelW, panelH, 8, 8)
+
+  love.graphics.setColor(colors.text)
+  love.graphics.print(string.format('%s at (%d,%d)', sel.type, sel.tileX, sel.tileY), mx + 12, my + 12)
+  if sel.type == 'lumberyard' or sel.type == 'builder' then
+    local maxSlots = (sel.type == 'lumberyard') and (state.buildingDefs.lumberyard.numWorkers or 0) or (state.buildingDefs.builder.numWorkers or 0)
+    love.graphics.print(string.format('Workers: %d / %d', sel.assigned or 0, maxSlots), mx + 12, my + 32)
+  end
+
+  -- Demolish button
+  local btnW, btnH = 100, 28
+  local bx, by = mx + panelW - btnW - 12, my + panelH - btnH - 12
+  love.graphics.setColor(colors.button)
+  love.graphics.rectangle('fill', bx, by, btnW, btnH, 6, 6)
+  love.graphics.setColor(colors.uiPanelOutline)
+  love.graphics.rectangle('line', bx, by, btnW, btnH, 6, 6)
+  love.graphics.setColor(colors.text)
+  love.graphics.printf('Demolish', bx, by + 6, btnW, 'center')
+  sel._demolishBtn = { x = bx, y = by, w = btnW, h = btnH }
 end
 
 return ui 

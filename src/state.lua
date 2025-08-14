@@ -44,7 +44,9 @@ state.ui = {
   promptDuration = 0,
   promptSticky = false,
   -- world rendering options
-  showWorldVillagerDots = false
+  showWorldVillagerDots = false,
+  -- demolish mode
+  isDemolishMode = false
 }
 
 -- Resources, population and world entities
@@ -57,7 +59,8 @@ state.game = {
 	particles = {},
 	roads = {}, -- map of road tiles
 	villagers = {}, -- persistent villager entities
-	roadSpeed = { onRoadMultiplier = 1.5 } -- tuning for road speed bonus
+	roadSpeed = { onRoadMultiplier = 1.5 }, -- tuning for road speed bonus
+	jobs = { demolitions = {}, _nextId = 1 }
 }
 
 -- Building definitions and balance
@@ -113,6 +116,7 @@ function state.restart()
   state.game.resources = { wood = 50 }
   state.game.productionRates = { wood = 0 }
   state.game.population = { total = 0, assigned = 0, capacity = 0 }
+  state.game.jobs = { demolitions = {}, _nextId = 1 }
   state.ui.isBuildMenuOpen = false
   state.ui.isPlacingBuilding = true
   state.ui.selectedBuildingType = 'builder'

@@ -351,38 +351,8 @@ function love.draw()
   ui.drawPrompt(state)
 
   local sel = state.ui.selectedBuilding
-  if sel and (sel.type == 'lumberyard' or sel.type == 'builder') then
-    local mx, my = 16, love.graphics.getHeight() - 90
-    local panelW, panelH = 360, 70
-    love.graphics.setColor(colors.uiPanel)
-    love.graphics.rectangle('fill', mx, my, panelW, panelH, 8, 8)
-    love.graphics.setColor(colors.uiPanelOutline)
-    love.graphics.rectangle('line', mx, my, panelW, panelH, 8, 8)
-
-    love.graphics.setColor(colors.text)
-    local maxSlots = (sel.type == 'lumberyard') and (state.buildingDefs.lumberyard.numWorkers or 0) or (state.buildingDefs.builder.numWorkers or 0)
-    local label = (sel.type == 'lumberyard') and 'Lumberyard workers' or 'Builder workers'
-    love.graphics.print(string.format('%s: %d / %d', label, sel.assigned or 0, maxSlots), mx + 12, my + 12)
-    love.graphics.print(string.format('Population: %d total, %d assigned', state.game.population.total or 0, state.game.population.assigned or 0), mx + 12, my + 30)
-
-    local btnW, btnH = 32, 28
-    local remX, remY = mx + panelW - 80, my + 12
-    local addX, addY = mx + panelW - 40, my + 12
-
-    local function drawBtn(x, y, label)
-      love.graphics.setColor(colors.button)
-      love.graphics.rectangle('fill', x, y, btnW, btnH, 6, 6)
-      love.graphics.setColor(colors.uiPanelOutline)
-      love.graphics.rectangle('line', x, y, btnW, btnH, 6, 6)
-      love.graphics.setColor(colors.text)
-      love.graphics.printf(label, x, y + 6, btnW, 'center')
-    end
-
-    drawBtn(remX, remY, '-')
-    drawBtn(addX, addY, '+')
-
-    sel._assignBtn = { x = addX, y = addY, w = btnW, h = btnH }
-    sel._unassignBtn = { x = remX, y = remY, w = btnW, h = btnH }
+  if sel then
+    ui.drawSelectedPanel(state)
   end
 
   if not state.ui.isPaused and not state.ui.isBuildMenuOpen then
@@ -529,8 +499,11 @@ function love.mousepressed(x, y, button)
     state.ui.isBuildMenuOpen = false
     state.ui.roadStartTile = nil
     state.ui.isVillagersPanelOpen = false
+    state.ui.isDemolishMode = false
     return
   end
+
+
 
   if ui.isOverVillagersButton(x, y) then
     state.ui.isVillagersPanelOpen = not state.ui.isVillagersPanelOpen
@@ -559,7 +532,8 @@ function love.mousepressed(x, y, button)
   -- Local staffing buttons when a worker building is selected
   do
     local sel = state.ui.selectedBuilding
-    if sel and (sel.type == 'lumberyard' or sel.type == 'builder') then
+    if sel then
+      -- staffing if present
       local add = sel._assignBtn
       local rem = sel._unassignBtn
       if add and x >= add.x and x <= add.x + add.w and y >= add.y and y <= add.y + add.h then
@@ -567,6 +541,19 @@ function love.mousepressed(x, y, button)
         return
       elseif rem and x >= rem.x and x <= rem.x + rem.w and y >= rem.y and y <= rem.y + rem.h then
         buildings.unassignOne(state, sel)
+        return
+      end
+      -- demolish
+      local d = sel._demolishBtn
+      if d and x >= d.x and x <= d.x + d.w and y >= d.y and y <= d.y + d.h then
+        -- queue a demolition job for builders
+        local jobId = state.game.jobs._nextId
+        state.game.jobs._nextId = jobId + 1
+        table.insert(state.game.jobs.demolitions, { id = jobId, target = sel })
+        state.ui.promptText = "Demolition queued."
+        state.ui.promptT = 0
+        state.ui.promptDuration = 2
+        state.ui.promptSticky = false
         return
       end
     end
@@ -626,6 +613,15 @@ function love.mousepressed(x, y, button)
   if not state.ui.isPlacingBuilding then
     local tileX, tileY = screenToTile(x, y)
     local b = hitTestBuildingAt(state, tileX, tileY)
+    if state.ui.isDemolishMode and b then
+      if buildings.demolish(state, b) then
+        state.ui.promptText = "Building demolished (+50% wood)."
+        state.ui.promptT = 0
+        state.ui.promptDuration = 2
+        state.ui.promptSticky = false
+      end
+      return
+    end
     state.ui.selectedBuilding = b
     if b then return end
   end

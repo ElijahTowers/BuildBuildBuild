@@ -354,6 +354,17 @@ local function drawVillagers(state)
   end
 end
 
+local function takeDemolitionJob(state)
+  local jobs = state.game.jobs and state.game.jobs.demolitions or nil
+  if not jobs or #jobs == 0 then return nil end
+  return table.remove(jobs, 1)
+end
+
+local function hasPendingDemolitions(state)
+  local jobs = state.game.jobs and state.game.jobs.demolitions or nil
+  return jobs and #jobs > 0
+end
+
 function workers.update(state, dt)
   local isDay = (state.time.normalized >= 0.25 and state.time.normalized < 0.75)
   updateVillagers(state, dt)
@@ -537,38 +548,69 @@ function workers.update(state, dt)
             end
             w.mode = nil
             w.targetBuilding = nil
+            w.demolishing = nil
+            w.demoTimer = nil
           else
-            -- pick/keep a target building under construction
-            if not w.targetBuilding or (w.targetBuilding.construction and w.targetBuilding.construction.complete) then
-              w.targetBuilding = findConstructionTarget(state, b.tileX, b.tileY)
+            -- Prefer demolition job if queued
+            if not w.demolishing and hasPendingDemolitions(state) then
+              local job = takeDemolitionJob(state)
+              if job and job.target then
+                w.demolishing = job
+                w.targetBuilding = job.target
+              end
             end
-            if w.targetBuilding then
-              local tx = w.targetBuilding.tileX * TILE + TILE / 2
-              local ty = w.targetBuilding.tileY * TILE + TILE / 2
+
+            if w.demolishing and w.targetBuilding then
+              local tb = w.targetBuilding
+              local tx = tb.tileX * TILE + TILE / 2
+              local ty = tb.tileY * TILE + TILE / 2
               if goTo(w, tx, ty, speed, dt, state) then
-                -- contribute to construction when near
-                local c = w.targetBuilding.construction
-                if c and not c.complete then
-                  c.progress = math.min(c.required, (c.progress or 0) + ratePerWorker * dt)
-                  if c.progress >= c.required then
-                    c.complete = true
-                    if w.targetBuilding.type == 'house' then
-                      local cap = (state.buildingDefs.house.residents or 0)
-                      state.game.population.total = (state.game.population.total or 0) + cap
-                    elseif w.targetBuilding.type == 'builder' then
-                      local cap = (state.buildingDefs.builder.residents or 0)
-                      state.game.population.total = (state.game.population.total or 0) + cap
-                    end
-                    -- auto-assign one worker to newly finished worker buildings
-                    autoAssignOneIfPossible(state, w.targetBuilding)
-                  end
+                w.demoTimer = (w.demoTimer or 0) + dt
+                -- small particle hint while demolishing
+                if (w.demoTimer or 0) > 0.2 then
+                  particles.spawnDustBurst(state.game.particles, tx, ty)
+                  w.demoTimer = 0
+                end
+                -- finish quickly
+                if (w._demoElapsed or 0) >= 1.2 then
+                  -- perform demolish
+                  require('src.buildings').demolish(state, tb)
+                  w.demolishing = nil
+                  w._demoElapsed = 0
+                else
+                  w._demoElapsed = (w._demoElapsed or 0) + dt
                 end
               end
             else
-              -- idle at workplace
-              local cx = b.tileX * TILE + TILE / 2
-              local cy = b.tileY * TILE + TILE / 2
-              goTo(w, cx, cy, speed * 0.5, dt, state)
+              -- normal building work
+              if not w.targetBuilding or (w.targetBuilding.construction and w.targetBuilding.construction.complete) then
+                w.targetBuilding = findConstructionTarget(state, b.tileX, b.tileY)
+              end
+              if w.targetBuilding then
+                local tx = w.targetBuilding.tileX * TILE + TILE / 2
+                local ty = w.targetBuilding.tileY * TILE + TILE / 2
+                if goTo(w, tx, ty, speed, dt, state) then
+                  local c = w.targetBuilding.construction
+                  if c and not c.complete then
+                    c.progress = math.min(c.required, (c.progress or 0) + ratePerWorker * dt)
+                    if c.progress >= c.required then
+                      c.complete = true
+                      if w.targetBuilding.type == 'house' then
+                        local cap = (state.buildingDefs.house.residents or 0)
+                        state.game.population.total = (state.game.population.total or 0) + cap
+                      elseif w.targetBuilding.type == 'builder' then
+                        local cap = (state.buildingDefs.builder.residents or 0)
+                        state.game.population.total = (state.game.population.total or 0) + cap
+                      end
+                      autoAssignOneIfPossible(state, w.targetBuilding)
+                    end
+                  end
+                end
+              else
+                local cx = b.tileX * TILE + TILE / 2
+                local cy = b.tileY * TILE + TILE / 2
+                goTo(w, cx, cy, speed * 0.5, dt, state)
+              end
             end
           end
         end
