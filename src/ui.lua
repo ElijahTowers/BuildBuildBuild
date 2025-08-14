@@ -415,6 +415,76 @@ function ui.drawHUD(state)
   ui.drawVillagersPanel(state)
 end
 
+function ui.drawMissionPanel(state)
+  local M = state.mission
+  if not M or not M.active then return end
+  local w, h = 360, 130
+  local x, y = love.graphics.getWidth() - w - 16, love.graphics.getHeight() - h - 16
+  love.graphics.setColor(colors.uiPanel)
+  love.graphics.rectangle('fill', x, y, w, h, 10, 10)
+  love.graphics.setColor(colors.uiPanelOutline)
+  love.graphics.rectangle('line', x, y, w, h, 10, 10)
+
+  love.graphics.setColor(colors.text)
+  love.graphics.print('Mission: ' .. (M.name or 'Unknown'), x + 12, y + 10)
+  local oy = y + 30
+  for _, o in ipairs(M.objectives or {}) do
+    -- fancy check mark
+    local cx = x + 18
+    local cy = oy + 8
+    local r = 7
+    local glow = (o.completePulse or 0)
+    if o.done then
+      love.graphics.setColor(0.2, 0.8, 0.3, 0.9)
+      local scale = 1 + 0.3 * glow
+      love.graphics.circle('fill', cx, cy, r * scale)
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.setLineWidth(2)
+      love.graphics.line(cx - 4, cy, cx - 1, cy + 3)
+      love.graphics.line(cx - 1, cy + 3, cx + 5, cy - 3)
+      love.graphics.setLineWidth(1)
+    else
+      love.graphics.setColor(0, 0, 0, 0.5)
+      love.graphics.circle('fill', cx, cy, r)
+      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.circle('line', cx, cy, r)
+    end
+
+    love.graphics.setColor(colors.text)
+    love.graphics.print(o.text, x + 32, oy)
+
+    -- progress bar
+    if o.target and o.target > 1 then
+      local bw, bh = w - 44, 10
+      local bx, by = x + 32, oy + 14
+      local p = math.min(1, (o.current or 0) / o.target)
+      love.graphics.setColor(0, 0, 0, 0.4)
+      love.graphics.rectangle('fill', bx, by, bw, bh, 4, 4)
+      love.graphics.setColor(0.2, 0.8, 0.3, 0.9)
+      love.graphics.rectangle('fill', bx, by, bw * p, bh, 4, 4)
+      if (o.pulse or 0) > 0 then
+        love.graphics.setColor(1, 1, 1, 0.25 * (o.pulse or 0))
+        love.graphics.rectangle('line', bx, by, bw, bh, 4, 4)
+      end
+      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.rectangle('line', bx, by, bw, bh, 4, 4)
+      love.graphics.setColor(colors.text)
+      love.graphics.printf(string.format('%d / %d', math.floor(o.current or 0), o.target), bx, by - 10, bw, 'right')
+    end
+
+    -- completion glow frame
+    if glow and glow > 0 then
+      love.graphics.setColor(1, 1, 0.6, 0.4 * glow)
+      love.graphics.rectangle('line', x + 8, oy - 2, w - 16, 24, 6, 6)
+    end
+    oy = oy + 28
+  end
+  if M.completed then
+    love.graphics.setColor(1, 1, 0.6, 1)
+    love.graphics.print('Completed!', x + 12, y + h - 22)
+  end
+end
+
 function ui.drawPrompt(state)
   if not state.ui.promptText then return end
   local t = state.ui.promptT or 0
@@ -531,8 +601,8 @@ end
 function ui.drawSelectedPanel(state)
   local sel = state.ui.selectedBuilding
   if not sel then return end
-  local mx, my = 16, love.graphics.getHeight() - 120
-  local panelW, panelH = 360, 100
+  local mx, my = 16, love.graphics.getHeight() - 140
+  local panelW, panelH = 380, 120
   love.graphics.setColor(colors.uiPanel)
   love.graphics.rectangle('fill', mx, my, panelW, panelH, 8, 8)
   love.graphics.setColor(colors.uiPanelOutline)
@@ -541,9 +611,29 @@ function ui.drawSelectedPanel(state)
   love.graphics.setColor(colors.text)
   love.graphics.print(string.format('%s', sel.type), mx + 12, my + 12)
   love.graphics.print(string.format('Location: (%d,%d)', sel.tileX, sel.tileY), mx + 12, my + 30)
+
+  -- staffing controls if applicable
+  sel._assignBtn, sel._unassignBtn = nil, nil
   if sel.type == 'lumberyard' or sel.type == 'builder' then
     local maxSlots = (sel.type == 'lumberyard') and (state.buildingDefs.lumberyard.numWorkers or 0) or (state.buildingDefs.builder.numWorkers or 0)
     love.graphics.print(string.format('Workers: %d / %d', sel.assigned or 0, maxSlots), mx + 12, my + 48)
+    local btnW, btnH = 28, 24
+    local remX, remY = mx + 180, my + 44
+    local addX, addY = remX + btnW + 6, remY
+    love.graphics.setColor(colors.button)
+    love.graphics.rectangle('fill', remX, remY, btnW, btnH, 6, 6)
+    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.rectangle('line', remX, remY, btnW, btnH, 6, 6)
+    love.graphics.setColor(colors.text)
+    love.graphics.printf('-', remX, remY + 4, btnW, 'center')
+    love.graphics.setColor(colors.button)
+    love.graphics.rectangle('fill', addX, addY, btnW, btnH, 6, 6)
+    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.rectangle('line', addX, addY, btnW, btnH, 6, 6)
+    love.graphics.setColor(colors.text)
+    love.graphics.printf('+', addX, addY + 4, btnW, 'center')
+    sel._unassignBtn = { x = remX, y = remY, w = btnW, h = btnH }
+    sel._assignBtn = { x = addX, y = addY, w = btnW, h = btnH }
   end
 
   -- Demolish button

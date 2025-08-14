@@ -13,6 +13,7 @@ local workers = require('src.workers')
 local ui = require('src.ui')
 local save = require('src.save')
 local roads = require('src.roads')
+local missions = require('src.missions')
 
 -- Shorthand
 local TILE_SIZE = C.TILE_SIZE
@@ -135,6 +136,7 @@ local function handlePauseMenuClick(x, y)
       elseif opt.key == 'restart' then
         state.restart()
         trees.generate(state)
+        missions.init(state)
       elseif opt.key == 'quit' then
         love.event.quit()
       end
@@ -151,8 +153,9 @@ function love.load()
   math.randomseed(os.time())
   state.resetWorldTilesFromScreen()
   ui.computeBuildMenuHeight()
-  trees.generate(state)
-
+    trees.generate(state)
+  missions.init(state)
+ 
   -- Start at beginning of the day (around sunrise ~06:00)
   state.time.t = state.time.dayLength * 0.25
   state.time.normalized = state.time.t / state.time.dayLength
@@ -230,6 +233,7 @@ function love.update(dt)
   end
 
   -- Systems
+  missions.update(state, sdt)
   if not isInitial then
     workers.update(state, sdt)
   end
@@ -348,6 +352,7 @@ function love.draw()
   ui.drawBuildMenu(state, state.buildingDefs)
   ui.drawHUD(state)
   ui.drawMiniMap(state)
+  ui.drawMissionPanel(state)
   ui.drawPrompt(state)
 
   local sel = state.ui.selectedBuilding
