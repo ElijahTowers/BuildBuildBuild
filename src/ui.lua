@@ -4,6 +4,7 @@
 local constants = require('src.constants')
 local utils = require('src.utils')
 local colors = constants.colors
+local buildings = require('src.buildings')
 
 local ui = {}
 
@@ -174,6 +175,13 @@ function ui.drawBuildMenu(state, buildingDefs)
 
     love.graphics.setColor(option.color)
     love.graphics.rectangle("fill", ox + 10, oy + 8, 32, 32, 4, 4)
+    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.rectangle("line", ox + 10, oy + 8, 32, 32, 4, 4)
+    -- icon inside the square
+    love.graphics.push()
+    love.graphics.translate(ox + 10 + 16, oy + 8 + 16)
+    buildings.drawIcon(option.key, 0, 0, 28, 0)
+    love.graphics.pop()
 
     love.graphics.setColor(colors.text[1], colors.text[2], colors.text[3], (colors.text[4] or 1) * a)
     local def = buildingDefs[option.key]
@@ -221,7 +229,7 @@ function ui.drawVillagersPanel(state)
       local name = (b.type == 'lumberyard') and 'Lumberyard' or 'Builders Workplace'
       local maxSlots = (b.type == 'lumberyard') and (state.buildingDefs.lumberyard.numWorkers or 0) or (state.buildingDefs.builder.numWorkers or 0)
       love.graphics.setColor(colors.text)
-      love.graphics.print(string.format('%s (%d/%d)', name, b.assigned or 0, maxSlots), x + 12, rowY)
+      love.graphics.print(string.format('%s (%d/%d)  Location: (%d,%d)', name, b.assigned or 0, maxSlots, b.tileX, b.tileY), x + 12, rowY)
       local btnW, btnH = 28, 24
       local remX, remY = x + w - 76, rowY - 4
       local addX, addY = x + w - 40, rowY - 4
@@ -531,10 +539,11 @@ function ui.drawSelectedPanel(state)
   love.graphics.rectangle('line', mx, my, panelW, panelH, 8, 8)
 
   love.graphics.setColor(colors.text)
-  love.graphics.print(string.format('%s at (%d,%d)', sel.type, sel.tileX, sel.tileY), mx + 12, my + 12)
+  love.graphics.print(string.format('%s', sel.type), mx + 12, my + 12)
+  love.graphics.print(string.format('Location: (%d,%d)', sel.tileX, sel.tileY), mx + 12, my + 30)
   if sel.type == 'lumberyard' or sel.type == 'builder' then
     local maxSlots = (sel.type == 'lumberyard') and (state.buildingDefs.lumberyard.numWorkers or 0) or (state.buildingDefs.builder.numWorkers or 0)
-    love.graphics.print(string.format('Workers: %d / %d', sel.assigned or 0, maxSlots), mx + 12, my + 32)
+    love.graphics.print(string.format('Workers: %d / %d', sel.assigned or 0, maxSlots), mx + 12, my + 48)
   end
 
   -- Demolish button

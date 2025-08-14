@@ -246,6 +246,17 @@ local function drawBuildingIcon(typ, TILE_SIZE, innerPad)
   love.graphics.draw(meta.img, 0, 0, 0, s, s, meta.ox, meta.oy)
 end
 
+-- Public: draw an icon at screen-space position (x,y) centered, with a square size
+function buildings.drawIcon(typ, x, y, size, pad)
+  local meta = getImageMeta(typ)
+  if not meta or meta == false then return end
+  local iw, ih = meta.iw, meta.ih
+  local inner = (size or 32) - (pad or 0) * 2
+  local s = math.min(inner / iw, inner / ih) * 1.06
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(meta.img, x, y, 0, s, s, meta.ox, meta.oy)
+end
+
 function buildings.drawAll(state)
   local TILE_SIZE = constants.TILE_SIZE
   for _, b in ipairs(state.game.buildings) do
