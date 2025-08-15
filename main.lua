@@ -233,7 +233,7 @@ function love.update(dt)
   end
 
   -- Systems
-  missions.update(state, sdt)
+  missions.update(state, dt)
   if not isInitial then
     workers.update(state, sdt)
   end
@@ -244,14 +244,26 @@ function love.update(dt)
 
   -- Preview timer for pulsing outline
   state.ui.previewT = state.ui.previewT + sdt
-  -- Prompt timer
-  if state.ui.promptText and state.ui.promptDuration and state.ui.promptDuration > 0 then
-    state.ui.promptT = (state.ui.promptT or 0) + sdt
-    if state.ui.promptT > state.ui.promptDuration then
-      state.ui.promptText = nil
-      state.ui.promptT = 0
-      state.ui.promptDuration = 0
+  -- Stacked prompts update
+  do
+    state.ui.prompts = state.ui.prompts or {}
+    local newList = {}
+    for _, p in ipairs(state.ui.prompts) do
+      -- filter out initial placement prompt once initial phase ended
+      if not (not state.ui._pauseTimeForInitial and p.text and p.text:find('Place your Builders Workplace')) then
+        local inc = (p.useRealTime and dt) or sdt
+        p.t = (p.t or 0) + inc
+        if not p.duration or p.t < p.duration then
+          table.insert(newList, p)
+        end
+      end
     end
+    state.ui.prompts = newList
+  end
+  -- Back-compat single prompt funnels into stacked list
+  if state.ui.promptText and state.ui.promptDuration and state.ui.promptDuration > 0 then
+    table.insert(state.ui.prompts, { text = state.ui.promptText, t = 0, duration = state.ui.promptDuration, useRealTime = state.ui._promptUseRealTime })
+    state.ui.promptText = nil; state.ui.promptDuration = 0; state.ui._promptUseRealTime = nil
   end
 
   -- Mouse edge panning (not speed-scaled)
@@ -640,7 +652,7 @@ function love.mousepressed(x, y, button)
         buildings.payCost(state, state.ui.selectedBuildingType)
       end
       local newB = buildings.place(state, state.ui.selectedBuildingType, tileX, tileY)
-      if state.ui._isFreeInitialBuilder and newB and newB.type == 'builder' then
+      if newB and newB.type == 'builder' and state.ui._pauseTimeForInitial then
         -- Instantly complete the initial builder and grant residents (capacity was added on placement)
         newB.construction.progress = newB.construction.required
         newB.construction.complete = true
@@ -648,10 +660,14 @@ function love.mousepressed(x, y, button)
         state.game.population.total = (state.game.population.total or 0) + res
         state.ui._isFreeInitialBuilder = nil
         state.ui._pauseTimeForInitial = nil
-        -- Prompt player and start first day
-        state.ui.promptText = "Your Builders Workplace is ready. The first day begins!"
-        state.ui.promptT = 0
-        state.ui.promptDuration = 5
+        -- Clear initial long prompt and show ready prompt
+        state.ui.prompts = state.ui.prompts or {}
+        -- hard clear all existing prompts to avoid lingering initial prompt
+        state.ui.prompts = {}
+        state.ui.promptText = nil
+        state.ui.promptDuration = 0
+        state.ui._promptUseRealTime = nil
+        table.insert(state.ui.prompts, { text = "Your Builders Workplace is ready. The first day begins!", t = 0, duration = 5, useRealTime = true })
         -- Start time at morning
         state.time.t = state.time.dayLength * 0.25
         state.time.normalized = state.time.t / state.time.dayLength

@@ -486,33 +486,31 @@ function ui.drawMissionPanel(state)
 end
 
 function ui.drawPrompt(state)
-  if not state.ui.promptText then return end
-  local t = state.ui.promptT or 0
-  local dur = state.ui.promptDuration or 0
-  local sticky = state.ui.promptSticky
-  if (not sticky) and dur > 0 and t > dur then return end
-
-  local alpha = 1.0
-  if (not sticky) and dur > 0 and dur < 9000 then
-    local remain = math.max(0, dur - t)
-    alpha = math.min(1, remain / (dur * 0.5))
-  end
-
-  local msg = state.ui.promptText
+  local list = state.ui.prompts or {}
+  if #list == 0 then return end
   local screenW, screenH = love.graphics.getDimensions()
-  -- Place below the top buttons and HUD, left side
-  local x = 16
-  local y = 16 + 40 + 8 + 84 + 8 -- top buttons height + spacing + HUD height + spacing
-  local w = math.min(520, screenW - x - 16)
+  local baseX = 16
+  local baseY = 16 + 40 + 8 + 84 + 8
+  local w = math.min(520, screenW - baseX - 16)
   local h = 56
-
-  love.graphics.setColor(0, 0, 0, 0.75 * alpha)
-  love.graphics.rectangle('fill', x, y, w, h, 10, 10)
-  love.graphics.setColor(colors.uiPanelOutline[1], colors.uiPanelOutline[2], colors.uiPanelOutline[3], 0.9 * alpha)
-  love.graphics.rectangle('line', x, y, w, h, 10, 10)
-
-  love.graphics.setColor(colors.text[1], colors.text[2], colors.text[3], alpha)
-  love.graphics.printf(msg, x + 12, y + 16, w - 24, 'left')
+  local spacing = 8
+  local y = baseY
+  for i, p in ipairs(list) do
+    local t = p.t or 0
+    local dur = p.duration or 0
+    local alpha = 1.0
+    if dur > 0 and dur < 9000 then
+      local remain = math.max(0, dur - t)
+      alpha = math.min(1, remain / (dur * 0.5))
+    end
+    love.graphics.setColor(0, 0, 0, 0.75 * alpha)
+    love.graphics.rectangle('fill', baseX, y, w, h, 10, 10)
+    love.graphics.setColor(colors.uiPanelOutline[1], colors.uiPanelOutline[2], colors.uiPanelOutline[3], 0.9 * alpha)
+    love.graphics.rectangle('line', baseX, y, w, h, 10, 10)
+    love.graphics.setColor(colors.text[1], colors.text[2], colors.text[3], alpha)
+    love.graphics.printf(p.text or '', baseX + 12, y + 16, w - 24, 'left')
+    y = y + h + spacing
+  end
 end
 
 function ui.drawPauseMenu(state)

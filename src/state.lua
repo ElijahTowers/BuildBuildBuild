@@ -38,11 +38,14 @@ state.ui = {
   forceGrid = false,
   showHelp = false,
   selectedIndex = 0,
-  -- prompt message
+  -- prompt message (legacy single prompt fields)
   promptText = nil,
   promptT = 0,
   promptDuration = 0,
   promptSticky = false,
+  _promptUseRealTime = nil,
+  -- stacked prompts
+  prompts = {},
   -- world rendering options
   showWorldVillagerDots = false,
   -- demolish mode
