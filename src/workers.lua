@@ -162,7 +162,7 @@ end
 
 -- Auto-assign one worker to a worker building if there's free population and a free slot
 local function autoAssignOneIfPossible(state, b)
-  if not b or (b.type ~= 'lumberyard' and b.type ~= 'builder') then return end
+  if not b or (b.type ~= 'lumberyard' and b.type ~= 'builder' and b.type ~= 'farm') then return end
   local def = state.buildingDefs[b.type]
   local free = (state.game.population.total or 0) - (state.game.population.assigned or 0)
   if free <= 0 then return end
@@ -237,6 +237,28 @@ function workers.spawnAssignedWorker(state, b)
       carryWood = false,
       swingProgress = 0,
       swingHz = 1.8,
+      homeBuilding = home,
+      villagerRef = v
+    })
+    return
+  elseif b.type == 'farm' then
+    local home = findNearestHouse(state, b.tileX, b.tileY)
+    local startX, startY
+    if home then
+      startX = home.tileX * TILE + TILE / 2
+      startY = home.tileY * TILE + TILE / 2
+    else
+      startX = b.tileX * TILE + TILE / 2
+      startY = b.tileY * TILE + TILE / 2
+    end
+    local v = createVillager(state, home, b, startX, startY)
+    b.workers = b.workers or {}
+    table.insert(b.workers, {
+      x = startX,
+      y = startY,
+      state = 'toWork',
+      carryFood = false,
+      harvestTimer = 0,
       homeBuilding = home,
       villagerRef = v
     })
@@ -615,6 +637,67 @@ function workers.update(state, dt)
           end
         end
       end
+    elseif b.type == 'farm' then
+      ensureWorkerCount(state, b)
+      if b.workers and b.construction and b.construction.complete then
+        local def = state.buildingDefs.farm
+        local TILE = constants.TILE_SIZE
+        for _, w in ipairs(b.workers) do
+          local speed = def.workerSpeed or 120
+          if not isDay then
+            local home = w.homeBuilding
+            if home then
+              local hx = home.tileX * TILE + TILE / 2
+              local hy = home.tileY * TILE + TILE / 2
+              goTo(w, hx, hy, speed, dt, state)
+            end
+            w.state = 'idle'
+            w.harvestTimer = 0
+            w.carryFood = false
+          else
+            if w.state == 'toWork' or w.state == 'idle' then
+              local cx = b.tileX * TILE + TILE / 2
+              local cy = b.tileY * TILE + TILE / 2
+              if goTo(w, cx, cy, speed, dt, state) then
+                w.state = 'harvesting'
+                w.harvestTimer = 0
+              else
+                w.state = 'toWork'
+              end
+            elseif w.state == 'harvesting' then
+              w.harvestTimer = (w.harvestTimer or 0) + dt
+              if w.harvestTimer >= (def.harvestTime or 2.5) then
+                w.harvestTimer = 0
+                w.carryFood = true
+                w.state = 'deliverFood'
+              end
+            elseif w.state == 'deliverFood' then
+              local wh = findNearestWarehouse(state, math.floor(w.x / TILE), math.floor(w.y / TILE))
+              local tx, ty
+              if wh then
+                tx = wh.tileX * TILE + TILE / 2
+                ty = wh.tileY * TILE + TILE / 2
+              else
+                tx = b.tileX * TILE + TILE / 2
+                ty = b.tileY * TILE + TILE / 2
+              end
+              if goTo(w, tx, ty, speed, dt, state) then
+                if w.carryFood then
+                  local amount = (def.harvestPerTrip or 4)
+                  if wh then
+                    wh.storage = wh.storage or {}
+                    wh.storage.food = (wh.storage.food or 0) + amount
+                  else
+                    state.game.resources.food = (state.game.resources.food or 0) + amount
+                  end
+                  w.carryFood = false
+                end
+                w.state = 'toWork'
+              end
+            end
+          end
+        end
+      end
     end
   end
 end
@@ -675,6 +758,34 @@ function workers.draw(state)
         love.graphics.rectangle("fill", w.x - 5, w.y - 5, 10, 10, 2, 2)
         love.graphics.setColor(colors.outline)
         love.graphics.rectangle("line", w.x - 5, w.y - 5, 10, 10, 2, 2)
+      end
+    elseif b.type == 'farm' and b.workers then
+      for _, w in ipairs(b.workers) do
+        if w._onRoad then
+          love.graphics.setColor(1, 1, 1, 0.15)
+          love.graphics.rectangle('fill', w.x - 6, w.y + 7, 12, 2, 1, 1)
+        end
+        love.graphics.setColor(0, 0, 0, 0.25)
+        love.graphics.ellipse('fill', w.x, w.y + 6, 7, 3)
+        love.graphics.setColor(colors.worker)
+        love.graphics.rectangle("fill", w.x - 5, w.y - 5, 10, 10, 2, 2)
+        love.graphics.setColor(colors.outline)
+        love.graphics.rectangle("line", w.x - 5, w.y - 5, 10, 10, 2, 2)
+        if w.carryFood then
+          love.graphics.setColor(0.95, 0.85, 0.3, 1)
+          love.graphics.rectangle('fill', w.x - 3, w.y - 12, 6, 4)
+        end
+        if w.state == 'harvesting' then
+          -- simple hoeing motion over a surrounding plot
+          local t = (w.harvestTimer or 0) % 0.5
+          local phase = t / 0.5
+          local angle = -0.6 + phase * 1.2
+          local len = 12
+          love.graphics.setColor(colors.outline)
+          love.graphics.setLineWidth(2)
+          love.graphics.line(w.x, w.y, w.x + math.cos(angle) * len, w.y + math.sin(angle) * len)
+          love.graphics.setLineWidth(1)
+        end
       end
     end
   end

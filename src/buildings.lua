@@ -7,7 +7,6 @@ local utils = require('src.utils')
 local particles = require('src.particles')
 local colors = constants.colors
 local workers = require('src.workers')
-local bushes = require('src.bushes')
 
 -- Image cache for building icons
 local imageCache = {}
@@ -109,13 +108,13 @@ end
 
 function buildings.place(state, buildingType, tileX, tileY)
   trees.removeAt(state, tileX, tileY)
-  bushes.removeAt(state, tileX, tileY)
   local def = state.buildingDefs[buildingType]
   local color = { 0.7, 0.7, 0.7, 1.0 }
   if buildingType == 'house' then color = { 0.9, 0.6, 0.2, 1.0 }
   elseif buildingType == 'lumberyard' then color = { 0.3, 0.7, 0.3, 1.0 }
   elseif buildingType == 'warehouse' then color = { 0.6, 0.6, 0.7, 1.0 }
   elseif buildingType == 'builder' then color = { 0.7, 0.5, 0.3, 1.0 }
+  elseif buildingType == 'farm' then color = { 0.7, 0.8, 0.3, 1.0 }
   end
   local newB = {
     type = buildingType,
@@ -132,6 +131,23 @@ function buildings.place(state, buildingType, tileX, tileY)
       complete = (buildingType == 'house' and false) or false
     }
   }
+  
+  -- Initialize farm plots (surrounding tiles) and clear trees there
+  if buildingType == 'farm' then
+    newB.farm = { plots = {}, acc = 0 }
+    for dy = -1, 1 do
+      for dx = -1, 1 do
+        if not (dx == 0 and dy == 0) then
+          local nx, ny = tileX + dx, tileY + dy
+          if nx >= 0 and ny >= 0 and nx < state.world.tilesX and ny < state.world.tilesY then
+            trees.removeAt(state, nx, ny)
+            table.insert(newB.farm.plots, { dx = dx, dy = dy })
+          end
+        end
+      end
+    end
+  end
+
   table.insert(state.game.buildings, newB)
 
   if buildingType == 'house' then
@@ -158,6 +174,10 @@ function buildings.update(state, dt)
 
     if b.type == 'lumberyard' then
       b.anim.active = (b.assigned or 0) > 0
+    elseif b.type == 'farm' then
+      -- active if staffed and complete; actual production handled by workers
+      local staffed = (b.assigned or 0) > 0
+      b.anim.active = staffed and b.construction and b.construction.complete
     end
   end
 end
@@ -179,12 +199,20 @@ function buildings.assignOne(state, b)
     state.game.population.assigned = (state.game.population.assigned or 0) + 1
     workers.spawnAssignedWorker(state, b)
     return true
+  elseif b.type == 'farm' then
+    local free = (state.game.population.total or 0) - (state.game.population.assigned or 0)
+    local maxSlots = state.buildingDefs.farm.numWorkers or 0
+    if free <= 0 or (b.assigned or 0) >= maxSlots then return false end
+    b.assigned = (b.assigned or 0) + 1
+    state.game.population.assigned = (state.game.population.assigned or 0) + 1
+    workers.spawnAssignedWorker(state, b)
+    return true
   end
   return false
 end
 
 function buildings.unassignOne(state, b)
-  if b.type ~= 'lumberyard' and b.type ~= 'builder' then return false end
+  if b.type ~= 'lumberyard' and b.type ~= 'builder' and b.type ~= 'farm' then return false end
   if (b.assigned or 0) <= 0 then return false end
   b.assigned = b.assigned - 1
   state.game.population.assigned = state.game.population.assigned - 1
@@ -294,6 +322,18 @@ function buildings.drawAll(state)
       love.graphics.rectangle('fill', -TILE_SIZE / 2, TILE_SIZE * 0.45, TILE_SIZE * p, 6, 3, 3)
       love.graphics.setColor(colors.outline)
       love.graphics.rectangle('line', -TILE_SIZE / 2, TILE_SIZE * 0.45, TILE_SIZE, 6, 3, 3)
+    end
+
+    -- Farm crops around
+    if b.type == 'farm' and b.farm and b.farm.plots then
+      for _, p in ipairs(b.farm.plots) do
+        local ox = p.dx * TILE_SIZE
+        local oy = p.dy * TILE_SIZE
+        love.graphics.setColor(0.35, 0.6, 0.2, 1)
+        love.graphics.rectangle('fill', -TILE_SIZE / 2 + ox + 6, -TILE_SIZE / 2 + oy + 6, TILE_SIZE - 12, TILE_SIZE - 12, 4, 4)
+        love.graphics.setColor(0.25, 0.45, 0.15, 1)
+        love.graphics.rectangle('line', -TILE_SIZE / 2 + ox + 6, -TILE_SIZE / 2 + oy + 6, TILE_SIZE - 12, TILE_SIZE - 12, 4, 4)
+      end
     end
 
     love.graphics.pop()

@@ -14,7 +14,6 @@ local ui = require('src.ui')
 local save = require('src.save')
 local roads = require('src.roads')
 local missions = require('src.missions')
-local bushes = require('src.bushes')
 
 -- Shorthand
 local TILE_SIZE = C.TILE_SIZE
@@ -99,6 +98,22 @@ local function drawPlacementPreview()
     love.graphics.circle('line', cx, cy, radiusPx)
   end
 
+  -- Show farm surrounding plots while previewing
+  if state.ui.selectedBuildingType == 'farm' then
+    for dy = -1, 1 do
+      for dx = -1, 1 do
+        if not (dx == 0 and dy == 0) then
+          local nx = px + dx * TILE_SIZE
+          local ny = py + dy * TILE_SIZE
+          love.graphics.setColor(0.35, 0.6, 0.2, 0.35)
+          love.graphics.rectangle('fill', nx, ny, TILE_SIZE, TILE_SIZE, 4, 4)
+          love.graphics.setColor(colors.outline[1], colors.outline[2], colors.outline[3], 0.25)
+          love.graphics.rectangle('line', nx, ny, TILE_SIZE, TILE_SIZE, 4, 4)
+        end
+      end
+    end
+  end
+
   if not isValid then
     love.graphics.setColor(colors.invalid)
   else
@@ -137,7 +152,6 @@ local function handlePauseMenuClick(x, y)
       elseif opt.key == 'restart' then
         state.restart()
         trees.generate(state)
-        bushes.generate(state)
         missions.init(state)
       elseif opt.key == 'quit' then
         love.event.quit()
@@ -156,7 +170,6 @@ function love.load()
   state.resetWorldTilesFromScreen()
   ui.computeBuildMenuHeight()
     trees.generate(state)
-  bushes.generate(state)
   missions.init(state)
  
   -- Start at beginning of the day (around sunrise ~06:00)
@@ -244,7 +257,6 @@ function love.update(dt)
   particles.update(state.game.particles, sdt)
   trees.updateShake(state, sdt)
   roads.update(state, sdt)
-  bushes.updateShake(state, sdt)
 
   -- Preview timer for pulsing outline
   state.ui.previewT = state.ui.previewT + sdt
@@ -336,7 +348,6 @@ function love.draw()
   end
   buildings.drawSelectedRadius(state)
   trees.draw(state)
-  bushes.draw(state)
   roads.draw(state)
   buildings.drawAll(state)
   workers.draw(state)
@@ -751,7 +762,7 @@ function love.keypressed(key)
 
   -- Build menu quick shortcuts
   if state.ui.isBuildMenuOpen then
-    local map = { h = 'house', l = 'lumberyard', w = 'warehouse', b = 'builder' }
+    local map = { h = 'house', l = 'lumberyard', w = 'warehouse', b = 'builder', f = 'farm' }
     local sel = map[key]
     if sel then
       state.ui.selectedBuildingType = sel

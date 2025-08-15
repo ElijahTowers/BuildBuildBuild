@@ -23,7 +23,8 @@ ui.buildMenu = {
     { key = "house", label = "House", color = { 0.9, 0.6, 0.2, 1.0 } },
     { key = "lumberyard", label = "Lumberyard", color = { 0.3, 0.7, 0.3, 1.0 } },
     { key = "warehouse", label = "Warehouse", color = { 0.6, 0.6, 0.7, 1.0 } },
-    { key = "builder", label = "Builders Workplace", color = { 0.7, 0.5, 0.3, 1.0 } }
+    { key = "builder", label = "Builders Workplace", color = { 0.7, 0.5, 0.3, 1.0 } },
+    { key = "farm", label = "Farm", color = { 0.7, 0.8, 0.3, 1.0 } }
   }
 }
 
@@ -192,7 +193,7 @@ function ui.drawBuildMenu(state, buildingDefs)
     love.graphics.print(option.label .. costText, ox + 52, oy + 12)
 
     -- shortcuts for quick build (if defined)
-    local shortcut = (option.key == 'house' and 'H') or (option.key == 'lumberyard' and 'L') or (option.key == 'warehouse' and 'W') or (option.key == 'builder' and 'B') or nil
+    local shortcut = (option.key == 'house' and 'H') or (option.key == 'lumberyard' and 'L') or (option.key == 'warehouse' and 'W') or (option.key == 'builder' and 'B') or (option.key == 'farm' and 'F') or nil
     if shortcut then
       love.graphics.setColor(colors.text[1], colors.text[2], colors.text[3], 0.6)
       love.graphics.printf(shortcut, ox + ow - 28, oy + 6, 24, 'right')
@@ -225,9 +226,9 @@ function ui.drawVillagersPanel(state)
   local btns = {}
   local rowY = y + 64
   for _, b in ipairs(state.game.buildings) do
-    if b.type == 'lumberyard' or b.type == 'builder' then
-      local name = (b.type == 'lumberyard') and 'Lumberyard' or 'Builders Workplace'
-      local maxSlots = (b.type == 'lumberyard') and (state.buildingDefs.lumberyard.numWorkers or 0) or (state.buildingDefs.builder.numWorkers or 0)
+    if b.type == 'lumberyard' or b.type == 'builder' or b.type == 'farm' then
+      local name = (b.type == 'lumberyard') and 'Lumberyard' or (b.type == 'builder' and 'Builders Workplace' or 'Farm')
+      local maxSlots = (b.type == 'lumberyard') and (state.buildingDefs.lumberyard.numWorkers or 0) or (b.type == 'builder' and (state.buildingDefs.builder.numWorkers or 0) or (state.buildingDefs.farm.numWorkers or 0))
       love.graphics.setColor(colors.text)
       love.graphics.print(string.format('%s (%d/%d)  Location: (%d,%d)', name, b.assigned or 0, maxSlots, b.tileX, b.tileY), x + 12, rowY)
       local btnW, btnH = 28, 24
@@ -302,16 +303,6 @@ function ui.drawMiniMap(state)
     end
   end
 
-  -- Draw bushes (berries)
-  love.graphics.setColor(colors.bushFill)
-  for _, b in ipairs(state.game.bushes or {}) do
-    if b.alive then
-      local bx = x + b.tileX * scale
-      local by = y + b.tileY * scale
-      love.graphics.rectangle('fill', bx + scale * 0.35, by + scale * 0.35, math.max(1, scale * 0.3), math.max(1, scale * 0.3))
-    end
-  end
-
   -- Draw buildings
   for _, b in ipairs(state.game.buildings) do
     local bx = x + b.tileX * scale
@@ -349,7 +340,7 @@ function ui.drawHUD(state)
   local x = ui.villagersButton.x + ui.villagersButton.width + 16
   local y = 16
   local w = 600
-  local h = 84
+  local h = 100
   love.graphics.setColor(colors.uiPanel)
   love.graphics.rectangle("fill", x, y, w, h, 8, 8)
   love.graphics.setColor(colors.uiPanelOutline)
@@ -365,6 +356,15 @@ function ui.drawHUD(state)
   end
   local totalWood = baseWood + storedWood
   love.graphics.print(string.format("Wood: %d", totalWood), x + 12, y + 12)
+  local baseFood = math.floor((state.game.resources.food or 0) + 0.5)
+  local storedFood = 0
+  for _, b in ipairs(state.game.buildings) do
+    if b.type == 'warehouse' and b.storage and b.storage.food then
+      storedFood = storedFood + b.storage.food
+    end
+  end
+  local totalFood = baseFood + storedFood
+  love.graphics.print(string.format("Food: %d", totalFood), x + 12, y + 32)
 
   local hours = math.floor(state.time.normalized * 24) % 24
   local minutes = math.floor((state.time.normalized * 24 - hours) * 60)
@@ -374,7 +374,7 @@ function ui.drawHUD(state)
   love.graphics.print(string.format("Speed: %dx", state.time.speed or 1), x + 400, y + 12)
 
   local btnW, btnH = 36, 22
-  local s1x = x + 390; local s1y = y + 36
+  local s1x = x + 390; local s1y = y + 52
   local s2x = s1x + btnW + 6; local s2y = s1y
   local s4x = s2x + btnW + 6; local s4y = s1y
   local s8x = s4x + btnW + 6; local s8y = s1y
@@ -402,11 +402,11 @@ function ui.drawHUD(state)
     if def and def.cost and def.cost.wood then
       local costStr = string.format("Cost: %d wood", def.cost.wood)
       love.graphics.setColor(colors.text)
-      love.graphics.print(costStr, x + 12, y + 30)
+      love.graphics.print(costStr, x + 12, y + 50)
     end
     if state.ui.selectedBuildingType == "lumberyard" then
       love.graphics.setColor(colors.text)
-      love.graphics.print(string.format("Radius: %d tiles, Workers: %d", state.buildingDefs.lumberyard.radiusTiles, state.buildingDefs.lumberyard.numWorkers), x + 12, y + 48)
+      love.graphics.print(string.format("Radius: %d tiles, Workers: %d", state.buildingDefs.lumberyard.radiusTiles, state.buildingDefs.lumberyard.numWorkers), x + 12, y + 68)
     end
   end
 
@@ -500,7 +500,7 @@ function ui.drawPrompt(state)
   if #list == 0 then return end
   local screenW, screenH = love.graphics.getDimensions()
   local baseX = 16
-  local baseY = 16 + 40 + 8 + 84 + 8
+  local baseY = 16 + 40 + 8 + 100 + 8
   local w = math.min(520, screenW - baseX - 16)
   local h = 56
   local spacing = 8
@@ -624,6 +624,26 @@ function ui.drawSelectedPanel(state)
   sel._assignBtn, sel._unassignBtn = nil, nil
   if sel.type == 'lumberyard' or sel.type == 'builder' then
     local maxSlots = (sel.type == 'lumberyard') and (state.buildingDefs.lumberyard.numWorkers or 0) or (state.buildingDefs.builder.numWorkers or 0)
+    love.graphics.print(string.format('Workers: %d / %d', sel.assigned or 0, maxSlots), mx + 12, my + 48)
+    local btnW, btnH = 28, 24
+    local remX, remY = mx + 180, my + 44
+    local addX, addY = remX + btnW + 6, remY
+    love.graphics.setColor(colors.button)
+    love.graphics.rectangle('fill', remX, remY, btnW, btnH, 6, 6)
+    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.rectangle('line', remX, remY, btnW, btnH, 6, 6)
+    love.graphics.setColor(colors.text)
+    love.graphics.printf('-', remX, remY + 4, btnW, 'center')
+    love.graphics.setColor(colors.button)
+    love.graphics.rectangle('fill', addX, addY, btnW, btnH, 6, 6)
+    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.rectangle('line', addX, addY, btnW, btnH, 6, 6)
+    love.graphics.setColor(colors.text)
+    love.graphics.printf('+', addX, addY + 4, btnW, 'center')
+    sel._unassignBtn = { x = remX, y = remY, w = btnW, h = btnH }
+    sel._assignBtn = { x = addX, y = addY, w = btnW, h = btnH }
+  elseif sel.type == 'farm' then
+    local maxSlots = state.buildingDefs.farm.numWorkers or 0
     love.graphics.print(string.format('Workers: %d / %d', sel.assigned or 0, maxSlots), mx + 12, my + 48)
     local btnW, btnH = 28, 24
     local remX, remY = mx + 180, my + 44

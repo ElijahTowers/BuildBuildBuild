@@ -20,16 +20,11 @@ local function serializeState(state)
 	S.time = { t = state.time.t, dayLength = state.time.dayLength, speed = state.time.speed }
 	-- Resources
 	S.game = {}
-	S.game.resources = { wood = state.game.resources.wood or 0 }
+	S.game.resources = { wood = state.game.resources.wood or 0, food = state.game.resources.food or 0 }
 	-- Trees (alive only)
 	S.game.trees = {}
 	for _, t in ipairs(state.game.trees or {}) do
 		S.game.trees[#S.game.trees + 1] = { tileX = t.tileX, tileY = t.tileY, alive = t.alive ~= false }
-	end
-	-- Bushes (alive only)
-	S.game.bushes = {}
-	for _, b in ipairs(state.game.bushes or {}) do
-		S.game.bushes[#S.game.bushes + 1] = { tileX = b.tileX, tileY = b.tileY, alive = b.alive ~= false }
 	end
 	-- Buildings
 	S.game.buildings = {}
@@ -42,6 +37,9 @@ local function serializeState(state)
 			storage = b.storage or {},
 			construction = b.construction and { required = b.construction.required, progress = b.construction.progress, complete = b.construction.complete } or nil
 		}
+		if b.type == 'farm' and b.farm then
+			sb.farm = { acc = b.farm.acc or 0, plots = b.farm.plots or {} }
+		end
 		S.game.buildings[#S.game.buildings + 1] = sb
 	end
 	-- Roads
@@ -72,6 +70,7 @@ local function deserializeInto(state, S)
 
 	-- Resources
 	state.game.resources.wood = (S.game.resources and S.game.resources.wood) or 0
+	state.game.resources.food = (S.game.resources and S.game.resources.food) or 0
 
 	-- Trees
 	for _, t in ipairs(S.game.trees or {}) do
@@ -83,30 +82,6 @@ local function deserializeInto(state, S)
 			health = 10
 		}
 	end
-	-- Bushes
-	state.game.bushes = {}
-	for _, b in ipairs(S.game.bushes or {}) do
-		state.game.bushes[#state.game.bushes + 1] = {
-			tileX = b.tileX, tileY = b.tileY,
-			alive = b.alive ~= false,
-			windTime = 0,
-			windPhase = math.random() * math.pi * 2,
-			colorMul = 1,
-			sizeScale = 1
-		}
-	end
-	-- Ensure no overlap: if a tile has both a tree and a bush, keep the tree and remove the bush
-	if state.game.trees and state.game.bushes then
-		local hasTree = {}
-		for _, t in ipairs(state.game.trees) do
-			if t.alive then hasTree[string.format('%d,%d', t.tileX, t.tileY)] = true end
-		end
-		for _, b in ipairs(state.game.bushes) do
-			if b.alive and hasTree[string.format('%d,%d', b.tileX, b.tileY)] then
-				b.alive = false
-			end
-		end
-	end
 	-- Buildings
 	for _, sb in ipairs(S.game.buildings or {}) do
 		local color
@@ -114,6 +89,7 @@ local function deserializeInto(state, S)
 		elseif sb.type == 'lumberyard' then color = { 0.3, 0.7, 0.3, 1.0 }
 		elseif sb.type == 'warehouse' then color = { 0.6, 0.6, 0.7, 1.0 }
 		elseif sb.type == 'builder' then color = { 0.7, 0.5, 0.3, 1.0 }
+		elseif sb.type == 'farm' then color = { 0.7, 0.8, 0.3, 1.0 }
 		else color = { 0.8, 0.8, 0.8, 1.0 } end
 		local b = {
 			type = sb.type,
@@ -124,6 +100,9 @@ local function deserializeInto(state, S)
 			color = color,
 			construction = sb.construction or nil
 		}
+		if sb.type == 'farm' and sb.farm then
+			b.farm = { acc = sb.farm.acc or 0, plots = sb.farm.plots or {} }
+		end
 		state.game.buildings[#state.game.buildings + 1] = b
 	end
 	-- Roads
