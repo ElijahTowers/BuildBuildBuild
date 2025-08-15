@@ -14,6 +14,7 @@ local ui = require('src.ui')
 local save = require('src.save')
 local roads = require('src.roads')
 local missions = require('src.missions')
+local bushes = require('src.bushes')
 
 -- Shorthand
 local TILE_SIZE = C.TILE_SIZE
@@ -136,6 +137,7 @@ local function handlePauseMenuClick(x, y)
       elseif opt.key == 'restart' then
         state.restart()
         trees.generate(state)
+        bushes.generate(state)
         missions.init(state)
       elseif opt.key == 'quit' then
         love.event.quit()
@@ -154,6 +156,7 @@ function love.load()
   state.resetWorldTilesFromScreen()
   ui.computeBuildMenuHeight()
     trees.generate(state)
+  bushes.generate(state)
   missions.init(state)
  
   -- Start at beginning of the day (around sunrise ~06:00)
@@ -241,6 +244,7 @@ function love.update(dt)
   particles.update(state.game.particles, sdt)
   trees.updateShake(state, sdt)
   roads.update(state, sdt)
+  bushes.updateShake(state, sdt)
 
   -- Preview timer for pulsing outline
   state.ui.previewT = state.ui.previewT + sdt
@@ -332,6 +336,7 @@ function love.draw()
   end
   buildings.drawSelectedRadius(state)
   trees.draw(state)
+  bushes.draw(state)
   roads.draw(state)
   buildings.drawAll(state)
   workers.draw(state)

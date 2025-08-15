@@ -7,6 +7,7 @@ local utils = require('src.utils')
 local particles = require('src.particles')
 local colors = constants.colors
 local workers = require('src.workers')
+local bushes = require('src.bushes')
 
 -- Image cache for building icons
 local imageCache = {}
@@ -108,6 +109,7 @@ end
 
 function buildings.place(state, buildingType, tileX, tileY)
   trees.removeAt(state, tileX, tileY)
+  bushes.removeAt(state, tileX, tileY)
   local def = state.buildingDefs[buildingType]
   local color = { 0.7, 0.7, 0.7, 1.0 }
   if buildingType == 'house' then color = { 0.9, 0.6, 0.2, 1.0 }

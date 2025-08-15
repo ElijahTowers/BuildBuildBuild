@@ -26,6 +26,11 @@ local function serializeState(state)
 	for _, t in ipairs(state.game.trees or {}) do
 		S.game.trees[#S.game.trees + 1] = { tileX = t.tileX, tileY = t.tileY, alive = t.alive ~= false }
 	end
+	-- Bushes (alive only)
+	S.game.bushes = {}
+	for _, b in ipairs(state.game.bushes or {}) do
+		S.game.bushes[#S.game.bushes + 1] = { tileX = b.tileX, tileY = b.tileY, alive = b.alive ~= false }
+	end
 	-- Buildings
 	S.game.buildings = {}
 	for _, b in ipairs(state.game.buildings or {}) do
@@ -77,6 +82,30 @@ local function deserializeInto(state, S)
 			beingChopped = false,
 			health = 10
 		}
+	end
+	-- Bushes
+	state.game.bushes = {}
+	for _, b in ipairs(S.game.bushes or {}) do
+		state.game.bushes[#state.game.bushes + 1] = {
+			tileX = b.tileX, tileY = b.tileY,
+			alive = b.alive ~= false,
+			windTime = 0,
+			windPhase = math.random() * math.pi * 2,
+			colorMul = 1,
+			sizeScale = 1
+		}
+	end
+	-- Ensure no overlap: if a tile has both a tree and a bush, keep the tree and remove the bush
+	if state.game.trees and state.game.bushes then
+		local hasTree = {}
+		for _, t in ipairs(state.game.trees) do
+			if t.alive then hasTree[string.format('%d,%d', t.tileX, t.tileY)] = true end
+		end
+		for _, b in ipairs(state.game.bushes) do
+			if b.alive and hasTree[string.format('%d,%d', b.tileX, b.tileY)] then
+				b.alive = false
+			end
+		end
 	end
 	-- Buildings
 	for _, sb in ipairs(S.game.buildings or {}) do

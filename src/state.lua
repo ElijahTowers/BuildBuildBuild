@@ -62,6 +62,7 @@ state.game = {
 	particles = {},
 	roads = {}, -- map of road tiles
 	villagers = {}, -- persistent villager entities
+	bushes = {},
 	roadSpeed = { onRoadMultiplier = 1.5 }, -- tuning for road speed bonus
 	jobs = { demolitions = {}, _nextId = 1 }
 }
@@ -116,6 +117,7 @@ function state.restart()
   state.game.particles = {}
   state.game.roads = {}
   state.game.villagers = {}
+  state.game.bushes = {}
   state.game.resources = { wood = 50 }
   state.game.productionRates = { wood = 0 }
   state.game.population = { total = 0, assigned = 0, capacity = 0 }

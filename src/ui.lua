@@ -302,6 +302,16 @@ function ui.drawMiniMap(state)
     end
   end
 
+  -- Draw bushes (berries)
+  love.graphics.setColor(colors.bushFill)
+  for _, b in ipairs(state.game.bushes or {}) do
+    if b.alive then
+      local bx = x + b.tileX * scale
+      local by = y + b.tileY * scale
+      love.graphics.rectangle('fill', bx + scale * 0.35, by + scale * 0.35, math.max(1, scale * 0.3), math.max(1, scale * 0.3))
+    end
+  end
+
   -- Draw buildings
   for _, b in ipairs(state.game.buildings) do
     local bx = x + b.tileX * scale

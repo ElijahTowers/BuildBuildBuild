@@ -39,24 +39,33 @@ function trees.generate(state)
       local ty = math.max(0, math.min(tilesY - 1, cy + oy))
       local k = key(tx, ty)
       if not occupied[k] then
-        occupied[k] = true
-        table.insert(list, {
-          tileX = tx,
-          tileY = ty,
-          alive = true,
-          health = 3.0,
-          reserved = false,
-          beingChopped = false,
-          shakeTime = 0,
-          shakePower = 0,
-          shakeDirX = 0,
-          shakeDirY = 0,
-          sizeScale = 0.9 + math.random() * 0.25,
-          colorMul = 0.9 + math.random() * 0.2,
-          windPhase = math.random() * math.pi * 2,
-          windTime = 0,
-          stumpTime = 0
-        })
+        -- avoid overlapping with bushes that might already be placed
+        local blocked = false
+        if state.game and state.game.bushes then
+          for _, b in ipairs(state.game.bushes) do
+            if b.alive and b.tileX == tx and b.tileY == ty then blocked = true; break end
+          end
+        end
+        if not blocked then
+          occupied[k] = true
+          table.insert(list, {
+            tileX = tx,
+            tileY = ty,
+            alive = true,
+            health = 3.0,
+            reserved = false,
+            beingChopped = false,
+            shakeTime = 0,
+            shakePower = 0,
+            shakeDirX = 0,
+            shakeDirY = 0,
+            sizeScale = 0.9 + math.random() * 0.25,
+            colorMul = 0.9 + math.random() * 0.2,
+            windPhase = math.random() * math.pi * 2,
+            windTime = 0,
+            stumpTime = 0
+          })
+        end
       end
     end
   end
@@ -181,6 +190,13 @@ function trees.removeAt(state, tileX, tileY)
       t.stumpTime = 0
       return true
     end
+  end
+  return false
+end
+
+function trees.hasAt(state, tileX, tileY)
+  for _, t in ipairs(state.game.trees or {}) do
+    if t.alive and t.tileX == tileX and t.tileY == tileY then return true end
   end
   return false
 end
