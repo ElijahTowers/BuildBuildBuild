@@ -359,7 +359,7 @@ function ui.drawHUD(state)
   local baseFood = math.floor((state.game.resources.food or 0) + 0.5)
   local storedFood = 0
   for _, b in ipairs(state.game.buildings) do
-    if b.type == 'warehouse' and b.storage and b.storage.food then
+    if (b.type == 'warehouse' or b.type == 'builder') and b.storage and b.storage.food then
       storedFood = storedFood + b.storage.food
     end
   end

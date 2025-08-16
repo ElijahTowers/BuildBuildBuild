@@ -134,6 +134,21 @@ local function findNearestWarehouse(state, x, y)
   return best
 end
 
+local function findNearestBuilder(state, x, y)
+  local best, bestDistSq
+  bestDistSq = math.huge
+  for _, b in ipairs(state.game.buildings) do
+    if b.type == 'builder' then
+      local d = (b.tileX - x) ^ 2 + (b.tileY - y) ^ 2
+      if d < bestDistSq then
+        bestDistSq = d
+        best = b
+      end
+    end
+  end
+  return best
+end
+
 local function findConstructionTarget(state, bx, by)
   local best, bestDistSq
   bestDistSq = math.huge
@@ -260,7 +275,10 @@ function workers.spawnAssignedWorker(state, b)
       carryFood = false,
       harvestTimer = 0,
       homeBuilding = home,
-      villagerRef = v
+      villagerRef = v,
+      targetPlot = nil,
+      plotPx = nil,
+      plotPy = nil
     })
     return
   end
@@ -654,11 +672,29 @@ function workers.update(state, dt)
             w.state = 'idle'
             w.harvestTimer = 0
             w.carryFood = false
+            w.targetPlot = nil
+            w.plotPx, w.plotPy = nil, nil
           else
-            if w.state == 'toWork' or w.state == 'idle' then
-              local cx = b.tileX * TILE + TILE / 2
-              local cy = b.tileY * TILE + TILE / 2
-              if goTo(w, cx, cy, speed, dt, state) then
+            if w.state == 'toWork' or w.state == 'idle' or w.state == 'choosePlot' then
+              -- pick a random surrounding plot and walk there
+              if not w.targetPlot then
+                local plots = (b.farm and b.farm.plots) or {}
+                if #plots > 0 then
+                  local p = plots[love.math.random(1, #plots)]
+                  w.targetPlot = p
+                  local jitterX = love.math.random(-6, 6)
+                  local jitterY = love.math.random(-6, 6)
+                  w.plotPx = (b.tileX + p.dx) * TILE + TILE / 2 + jitterX
+                  w.plotPy = (b.tileY + p.dy) * TILE + TILE / 2 + jitterY
+                else
+                  -- fallback to center
+                  w.plotPx = b.tileX * TILE + TILE / 2
+                  w.plotPy = b.tileY * TILE + TILE / 2
+                end
+              end
+              local tx = w.plotPx or (b.tileX * TILE + TILE / 2)
+              local ty = w.plotPy or (b.tileY * TILE + TILE / 2)
+              if goTo(w, tx, ty, speed, dt, state) then
                 w.state = 'harvesting'
                 w.harvestTimer = 0
               else
@@ -674,9 +710,10 @@ function workers.update(state, dt)
             elseif w.state == 'deliverFood' then
               local wh = findNearestWarehouse(state, math.floor(w.x / TILE), math.floor(w.y / TILE))
               local tx, ty
-              if wh then
-                tx = wh.tileX * TILE + TILE / 2
-                ty = wh.tileY * TILE + TILE / 2
+              local drop = wh or findNearestBuilder(state, math.floor(w.x / TILE), math.floor(w.y / TILE))
+              if drop then
+                tx = drop.tileX * TILE + TILE / 2
+                ty = drop.tileY * TILE + TILE / 2
               else
                 tx = b.tileX * TILE + TILE / 2
                 ty = b.tileY * TILE + TILE / 2
@@ -688,11 +725,20 @@ function workers.update(state, dt)
                     wh.storage = wh.storage or {}
                     wh.storage.food = (wh.storage.food or 0) + amount
                   else
-                    state.game.resources.food = (state.game.resources.food or 0) + amount
+                    local builderB = findNearestBuilder(state, math.floor(w.x / TILE), math.floor(w.y / TILE))
+                    if builderB then
+                      builderB.storage = builderB.storage or {}
+                      builderB.storage.food = (builderB.storage.food or 0) + amount
+                    else
+                      state.game.resources.food = (state.game.resources.food or 0) + amount
+                    end
                   end
                   w.carryFood = false
                 end
-                w.state = 'toWork'
+                -- pick a new plot next
+                w.targetPlot = nil
+                w.plotPx, w.plotPy = nil, nil
+                w.state = 'choosePlot'
               end
             end
           end

@@ -34,7 +34,7 @@ local function serializeState(state)
 			tileX = b.tileX,
 			tileY = b.tileY,
 			assigned = b.assigned or 0,
-			storage = b.storage or {},
+			storage = (b.storage and { wood = b.storage.wood or 0, food = b.storage.food or 0 }) or {},
 			construction = b.construction and { required = b.construction.required, progress = b.construction.progress, complete = b.construction.complete } or nil
 		}
 		if b.type == 'farm' and b.farm then
@@ -100,6 +100,12 @@ local function deserializeInto(state, S)
 			color = color,
 			construction = sb.construction or nil
 		}
+		-- ensure storage subtables exist for known types
+		if b.type == 'warehouse' or b.type == 'builder' then
+			b.storage = b.storage or {}
+			b.storage.wood = b.storage.wood or 0
+			b.storage.food = b.storage.food or 0
+		end
 		if sb.type == 'farm' and sb.farm then
 			b.farm = { acc = sb.farm.acc or 0, plots = sb.farm.plots or {} }
 		end

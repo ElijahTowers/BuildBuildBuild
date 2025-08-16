@@ -233,17 +233,35 @@ function love.update(dt)
       else
         text = string.format("Storage is full (%d). Build another Warehouse to increase capacity (+100).", cap)
       end
-      state.ui.promptText = text
-      state.ui.promptT = 0
-      state.ui.promptDuration = 9999
-      state.ui.promptSticky = false
+      state.ui.prompts = state.ui.prompts or {}
+      local found = false
+      for _, p in ipairs(state.ui.prompts) do
+        if p.tag == 'capacity' then
+          p.text = text
+          p.duration = 999999
+          p.useRealTime = true
+          found = true
+          break
+        end
+      end
+      if not found then
+        table.insert(state.ui.prompts, { text = text, t = 0, duration = 999999, useRealTime = true, tag = 'capacity' })
+      end
       state.ui._lastCapacityPrompted = cap
     else
-      -- Not full anymore or still in initial placement; clear prompt
-      if state.ui.promptText and state.ui._lastCapacityPrompted then
+      -- Not full anymore or still in initial placement; remove any capacity prompt
+      if state.ui.prompts then
+        local newList = {}
+        for _, p in ipairs(state.ui.prompts) do
+          if p.tag ~= 'capacity' then table.insert(newList, p) end
+        end
+        state.ui.prompts = newList
+      end
+      if state.ui._lastCapacityPrompted then
         state.ui.promptText = nil
         state.ui.promptDuration = 0
         state.ui.promptSticky = false
+        state.ui._lastCapacityPrompted = nil
       end
     end
   end
@@ -264,13 +282,23 @@ function love.update(dt)
   do
     state.ui.prompts = state.ui.prompts or {}
     local newList = {}
+    local seenTags = {}
     for _, p in ipairs(state.ui.prompts) do
       -- filter out initial placement prompt once initial phase ended
       if not (not state.ui._pauseTimeForInitial and p.text and p.text:find('Place your Builders Workplace')) then
         local inc = (p.useRealTime and dt) or sdt
         p.t = (p.t or 0) + inc
-        if not p.duration or p.t < p.duration then
-          table.insert(newList, p)
+        -- de-dupe by tag: keep first only
+        local tag = p.tag
+        if tag then
+          if not seenTags[tag] and (not p.duration or p.t < p.duration) then
+            table.insert(newList, p)
+            seenTags[tag] = true
+          end
+        else
+          if not p.duration or p.t < p.duration then
+            table.insert(newList, p)
+          end
         end
       end
     end
