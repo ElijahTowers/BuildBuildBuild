@@ -134,11 +134,41 @@ local function findNearestWarehouse(state, x, y)
   return best
 end
 
+local function findNearestMarket(state, x, y)
+  local best, bestDistSq
+  bestDistSq = math.huge
+  for _, b in ipairs(state.game.buildings) do
+    if b.type == 'market' then
+      local d = (b.tileX - x) ^ 2 + (b.tileY - y) ^ 2
+      if d < bestDistSq then
+        bestDistSq = d
+        best = b
+      end
+    end
+  end
+  return best
+end
+
 local function findNearestBuilder(state, x, y)
   local best, bestDistSq
   bestDistSq = math.huge
   for _, b in ipairs(state.game.buildings) do
     if b.type == 'builder' then
+      local d = (b.tileX - x) ^ 2 + (b.tileY - y) ^ 2
+      if d < bestDistSq then
+        bestDistSq = d
+        best = b
+      end
+    end
+  end
+  return best
+end
+
+local function findNearestMarket(state, x, y)
+  local best, bestDistSq
+  bestDistSq = math.huge
+  for _, b in ipairs(state.game.buildings) do
+    if b.type == 'market' then
       local d = (b.tileX - x) ^ 2 + (b.tileY - y) ^ 2
       if d < bestDistSq then
         bestDistSq = d
@@ -336,6 +366,10 @@ local function goTo(w, px, py, speed, dt, state)
   else
     w._onRoad = false
   end
+  -- Starvation slowdown
+  if state and state.game and state.game.starving then
+    mult = mult * 0.6
+  end
   local arriveDist = math.max(2, speed * dt * 0.6)
   if dist <= arriveDist then
     w.x = px
@@ -358,6 +392,20 @@ local function updateVillagers(state, dt)
   local TILE = constants.TILE_SIZE
   for _, v in ipairs(state.game.villagers) do
     local speed = 120
+    local mealtime = state.time.mealtimeActive
+    if mealtime and not v._ateToday then
+      local m = findNearestMarket(state, math.floor(v.x / TILE), math.floor(v.y / TILE))
+      if m then
+        local mx = m.tileX * TILE + TILE / 2
+        local my = m.tileY * TILE + TILE / 2
+        if goTo(v, mx, my, speed, dt, state) then
+          -- visual: pickup spark at market on arrival
+          particles.spawnFoodPickup(state.game.particles, mx, my)
+          v._ateToday = true
+        end
+        goto continue
+      end
+    end
     if not isDay then
       local home = v.home
       if home then
@@ -381,6 +429,7 @@ local function updateVillagers(state, dt)
         end
       end
     end
+    ::continue::
   end
 end
 
@@ -417,6 +466,18 @@ function workers.update(state, dt)
           local def = state.buildingDefs.lumberyard
           local TILE = constants.TILE_SIZE
 
+          if state.time.mealtimeActive and not w._ateToday then
+            local m = findNearestMarket(state, math.floor(w.x / TILE), math.floor(w.y / TILE))
+            if m then
+              local mx = m.tileX * TILE + TILE / 2
+              local my = m.tileY * TILE + TILE / 2
+              if goTo(w, mx, my, def.workerSpeed, dt, state) then
+                particles.spawnFoodPickup(state.game.particles, mx, my)
+                w._ateToday = true
+              end
+              goto continue
+            end
+          end
           if not isDay then
             local home = w.homeBuilding
             if home then
@@ -579,6 +640,18 @@ function workers.update(state, dt)
         local ratePerWorker = def.buildRate or 2.0
         local TILE = constants.TILE_SIZE
         for _, w in ipairs(b.workers) do
+          if state.time.mealtimeActive and not w._ateToday then
+            local m = findNearestMarket(state, math.floor(w.x / TILE), math.floor(w.y / TILE))
+            if m then
+              local mx = m.tileX * TILE + TILE / 2
+              local my = m.tileY * TILE + TILE / 2
+              if goTo(w, mx, my, speed, dt, state) then
+                particles.spawnFoodPickup(state.game.particles, mx, my)
+                w._ateToday = true
+              end
+              goto builder_continue
+            end
+          end
           if not isDay then
             local home = w.homeBuilding
             if home then
@@ -653,6 +726,7 @@ function workers.update(state, dt)
               end
             end
           end
+          ::builder_continue::
         end
       end
     elseif b.type == 'farm' then
@@ -662,6 +736,18 @@ function workers.update(state, dt)
         local TILE = constants.TILE_SIZE
         for _, w in ipairs(b.workers) do
           local speed = def.workerSpeed or 120
+          if state.time.mealtimeActive and not w._ateToday then
+            local m = findNearestMarket(state, math.floor(w.x / TILE), math.floor(w.y / TILE))
+            if m then
+              local mx = m.tileX * TILE + TILE / 2
+              local my = m.tileY * TILE + TILE / 2
+              if goTo(w, mx, my, speed, dt, state) then
+                particles.spawnFoodPickup(state.game.particles, mx, my)
+                w._ateToday = true
+              end
+              goto farm_continue
+            end
+          end
           if not isDay then
             local home = w.homeBuilding
             if home then
@@ -705,12 +791,17 @@ function workers.update(state, dt)
               if w.harvestTimer >= (def.harvestTime or 2.5) then
                 w.harvestTimer = 0
                 w.carryFood = true
+                -- visual: sparkle at plot where food is picked up
+                local sx = w.plotPx or (b.tileX * TILE + TILE / 2)
+                local sy = w.plotPy or (b.tileY * TILE + TILE / 2)
+                particles.spawnFoodPickup(state.game.particles, sx, sy)
                 w.state = 'deliverFood'
               end
             elseif w.state == 'deliverFood' then
-              local wh = findNearestWarehouse(state, math.floor(w.x / TILE), math.floor(w.y / TILE))
+              -- Prefer delivering food to nearest Market; fallback to builder, then base
+              local mx = findNearestMarket(state, math.floor(w.x / TILE), math.floor(w.y / TILE))
               local tx, ty
-              local drop = wh or findNearestBuilder(state, math.floor(w.x / TILE), math.floor(w.y / TILE))
+              local drop = mx or findNearestBuilder(state, math.floor(w.x / TILE), math.floor(w.y / TILE))
               if drop then
                 tx = drop.tileX * TILE + TILE / 2
                 ty = drop.tileY * TILE + TILE / 2
@@ -721,9 +812,9 @@ function workers.update(state, dt)
               if goTo(w, tx, ty, speed, dt, state) then
                 if w.carryFood then
                   local amount = (def.harvestPerTrip or 4)
-                  if wh then
-                    wh.storage = wh.storage or {}
-                    wh.storage.food = (wh.storage.food or 0) + amount
+                  if mx then
+                    mx.storage = mx.storage or {}
+                    mx.storage.food = (mx.storage.food or 0) + amount
                   else
                     local builderB = findNearestBuilder(state, math.floor(w.x / TILE), math.floor(w.y / TILE))
                     if builderB then
@@ -742,6 +833,7 @@ function workers.update(state, dt)
               end
             end
           end
+          ::farm_continue::
         end
       end
     end

@@ -114,6 +114,7 @@ function buildings.place(state, buildingType, tileX, tileY)
   elseif buildingType == 'lumberyard' then color = { 0.3, 0.7, 0.3, 1.0 }
   elseif buildingType == 'warehouse' then color = { 0.6, 0.6, 0.7, 1.0 }
   elseif buildingType == 'builder' then color = { 0.7, 0.5, 0.3, 1.0 }
+  elseif buildingType == 'market' then color = { 0.85, 0.5, 0.25, 1.0 }
   elseif buildingType == 'farm' then color = { 0.7, 0.8, 0.3, 1.0 }
   end
   local newB = {
@@ -334,6 +335,23 @@ function buildings.drawAll(state)
         love.graphics.setColor(0.25, 0.45, 0.15, 1)
         love.graphics.rectangle('line', -TILE_SIZE / 2 + ox + 6, -TILE_SIZE / 2 + oy + 6, TILE_SIZE - 12, TILE_SIZE - 12, 4, 4)
       end
+    end
+
+    -- Market accents
+    if b.type == 'market' then
+      local aw = TILE_SIZE * 0.6
+      local ah = TILE_SIZE * 0.28
+      love.graphics.setColor(0.9, 0.2, 0.2, 0.9)
+      love.graphics.rectangle('fill', cx - aw/2, cy - TILE_SIZE * 0.4, aw, 10, 4, 4)
+      love.graphics.setColor(1, 1, 1, 0.8)
+      love.graphics.rectangle('fill', cx - aw/2, cy - TILE_SIZE * 0.4 + 10, aw, 8, 0, 0)
+      love.graphics.setColor(0.9, 0.2, 0.2, 0.9)
+      for i=0,5 do
+        local sx = cx - aw/2 + i * (aw/6)
+        love.graphics.polygon('fill', sx, cy - TILE_SIZE * 0.4 + 18, sx + aw/6, cy - TILE_SIZE * 0.4 + 18, sx + aw/12, cy - TILE_SIZE * 0.4 + 18 + ah)
+      end
+      love.graphics.setColor(colors.outline)
+      love.graphics.rectangle('line', cx - aw/2, cy - TILE_SIZE * 0.4, aw, 10, 4, 4)
     end
 
     love.graphics.pop()

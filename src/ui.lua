@@ -23,6 +23,7 @@ ui.buildMenu = {
     { key = "house", label = "House", color = { 0.9, 0.6, 0.2, 1.0 } },
     { key = "lumberyard", label = "Lumberyard", color = { 0.3, 0.7, 0.3, 1.0 } },
     { key = "warehouse", label = "Warehouse", color = { 0.6, 0.6, 0.7, 1.0 } },
+    { key = "market", label = "Market", color = { 0.85, 0.5, 0.25, 1.0 } },
     { key = "builder", label = "Builders Workplace", color = { 0.7, 0.5, 0.3, 1.0 } },
     { key = "farm", label = "Farm", color = { 0.7, 0.8, 0.3, 1.0 } }
   }
@@ -193,7 +194,7 @@ function ui.drawBuildMenu(state, buildingDefs)
     love.graphics.print(option.label .. costText, ox + 52, oy + 12)
 
     -- shortcuts for quick build (if defined)
-    local shortcut = (option.key == 'house' and 'H') or (option.key == 'lumberyard' and 'L') or (option.key == 'warehouse' and 'W') or (option.key == 'builder' and 'B') or (option.key == 'farm' and 'F') or nil
+    local shortcut = (option.key == 'house' and 'H') or (option.key == 'lumberyard' and 'L') or (option.key == 'warehouse' and 'W') or (option.key == 'market' and 'M') or (option.key == 'builder' and 'B') or (option.key == 'farm' and 'F') or nil
     if shortcut then
       love.graphics.setColor(colors.text[1], colors.text[2], colors.text[3], 0.6)
       love.graphics.printf(shortcut, ox + ow - 28, oy + 6, 24, 'right')
@@ -359,7 +360,7 @@ function ui.drawHUD(state)
   local baseFood = math.floor((state.game.resources.food or 0) + 0.5)
   local storedFood = 0
   for _, b in ipairs(state.game.buildings) do
-    if (b.type == 'warehouse' or b.type == 'builder') and b.storage and b.storage.food then
+    if (b.type == 'market' or b.type == 'builder') and b.storage and b.storage.food then
       storedFood = storedFood + b.storage.food
     end
   end

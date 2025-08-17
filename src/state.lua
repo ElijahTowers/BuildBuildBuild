@@ -63,7 +63,9 @@ state.game = {
 	roads = {}, -- map of road tiles
 	villagers = {}, -- persistent villager entities
 	roadSpeed = { onRoadMultiplier = 1.5 }, -- tuning for road speed bonus
-	jobs = { demolitions = {}, _nextId = 1 }
+	jobs = { demolitions = {}, _nextId = 1 },
+	starving = false, -- when true, workers slowed
+	_foodAcc = 0 -- fractional accumulator for food consumption
 }
 
 -- Building definitions and balance
@@ -89,6 +91,10 @@ state.buildingDefs = {
     capacity = { wood = 200 },
     buildRequired = 14
   },
+  market = {
+    cost = { wood = 15 },
+    buildRequired = 10
+  },
   builder = {
     cost = { wood = 25 },
     numWorkers = 5,
@@ -102,8 +108,8 @@ state.buildingDefs = {
     buildRequired = 10,
     numWorkers = 2,
     workerSpeed = 120,
-    harvestTime = 2.5, -- seconds per trip
-    harvestPerTrip = 4 -- food delivered per worker per trip
+    harvestTime = 6.0, -- seconds per trip (balanced)
+    harvestPerTrip = 1 -- food delivered per worker per trip (balanced)
   },
   road = {
     costPerTile = { wood = 1 }
@@ -128,6 +134,8 @@ function state.restart()
   state.game.productionRates = { wood = 0 }
   state.game.population = { total = 0, assigned = 0, capacity = 0 }
   state.game.jobs = { demolitions = {}, _nextId = 1 }
+  state.game.starving = false
+  state.game._foodAcc = 0
   state.ui.isBuildMenuOpen = false
   state.ui.isPlacingBuilding = true
   state.ui.selectedBuildingType = 'builder'

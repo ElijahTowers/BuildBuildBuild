@@ -89,6 +89,26 @@ function particles.spawnSmokePuff(gameParticles, px, py)
   end
 end
 
+function particles.spawnFoodPickup(gameParticles, px, py)
+  for i = 1, 8 do
+    local angle = math.random() * math.pi * 2
+    local speed = 20 + math.random() * 40
+    local vx = math.cos(angle) * speed
+    local vy = math.sin(angle) * speed
+    table.insert(gameParticles, {
+      x = px,
+      y = py,
+      vx = vx,
+      vy = vy,
+      life = 0.35 + math.random() * 0.25,
+      age = 0,
+      size = 1.5 + math.random() * 1.5,
+      color = { 0.95, 0.85, 0.3, 1.0 },
+      g = 30
+    })
+  end
+end
+
 function particles.update(gameParticles, dt)
   for i = #gameParticles, 1, -1 do
     local p = gameParticles[i]

@@ -201,10 +201,26 @@ function love.update(dt)
       if isDay then
         -- restore pre-night speed
         state.time.speed = state.time.preNightSpeed or 1
+        -- new day: reset synchronized mealtime flag
+        state.time.mealConsumedToday = false
+        state.time.mealtimeActive = false
+        state.game.starving = false
+        -- reset per-villager meal flags
+        if state.game and state.game.villagers then
+          for _, v in ipairs(state.game.villagers) do v._ateToday = false end
+        end
+        if state.game and state.game.buildings then
+          for _, b in ipairs(state.game.buildings) do
+            if b.workers then
+              for _, w in ipairs(b.workers) do w._ateToday = false end
+            end
+          end
+        end
       else
         -- entering night: remember current speed then switch to 8x
         state.time.preNightSpeed = state.time.speed or 1
         state.time.speed = 8
+        state.time.mealtimeActive = false
       end
       state.time.lastIsDay = isDay
     end
@@ -215,6 +231,70 @@ function love.update(dt)
   if not isInitial then
     state.time.t = (state.time.t + sdt) % state.time.dayLength
     state.time.normalized = state.time.t / state.time.dayLength
+  end
+
+  -- Synchronized daily mealtime: all villagers eat just before nightfall
+  do
+    local pop = state.game.population.total or 0
+    if pop > 0 and not isInitial then
+      -- Trigger mealtime during late day window before night (day ends at tnorm 0.75)
+      local tnorm = state.time.normalized
+      -- start directing villagers to market slightly earlier
+      if (not state.time.mealtimeActive) and (tnorm >= 0.70 and tnorm < 0.75) then
+        state.time.mealtimeActive = true
+      end
+      if (not state.time.mealConsumedToday) and (tnorm >= 0.73 and tnorm < 0.75) then
+        local remaining = pop
+        local consumed = 0
+        local markets = {}
+        for _, b in ipairs(state.game.buildings) do
+          if b.type == 'market' then table.insert(markets, b) end
+        end
+        if #markets > 0 then
+          for _, m in ipairs(markets) do
+            if remaining <= 0 then break end
+            local stock = (m.storage and m.storage.food) or 0
+            if stock > 0 then
+              local take = math.min(remaining, stock)
+              m.storage.food = stock - take
+              remaining = remaining - take
+              consumed = consumed + take
+            end
+          end
+        end
+        local mealOk = (consumed >= pop)
+        state.time.mealConsumedToday = true
+        state.time.mealtimeActive = true
+        state.time.lastMealOk = mealOk
+        state.game.starving = not mealOk
+
+        -- Prompt player if villagers could not get food at the market
+        state.ui.prompts = state.ui.prompts or {}
+        local function upsertPrompt(tag, text)
+          local found = false
+          for _, p in ipairs(state.ui.prompts) do
+            if p.tag == tag then
+              p.text = text; p.duration = 999999; p.useRealTime = true; found = true; break
+            end
+          end
+          if not found then table.insert(state.ui.prompts, { text = text, t = 0, duration = 999999, useRealTime = true, tag = tag }) end
+        end
+        local function removePrompt(tag)
+          local newList = {}
+          for _, p in ipairs(state.ui.prompts) do if p.tag ~= tag then table.insert(newList, p) end end
+          state.ui.prompts = newList
+        end
+        if not mealOk then
+          if #markets == 0 then
+            upsertPrompt('market_food', 'Villagers could not eat: build a Market and stock it with food before dusk.')
+          else
+            upsertPrompt('market_food', 'Villagers could not eat: not enough food in Markets. Stock them before dusk.')
+          end
+        else
+          removePrompt('market_food')
+        end
+      end
+    end
   end
 
   -- Passive production placeholder (none currently for lumberyard)
