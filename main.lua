@@ -84,7 +84,6 @@ local function drawPlacementPreview()
 
   local isValid = buildings.canPlaceAt(state, tileX, tileY)
     and not isOverUI(love.mouse.getX(), love.mouse.getY())
-    and (state.ui._isFreeInitialBuilder or buildings.canAfford(state, state.ui.selectedBuildingType))
 
   -- Show lumberyard radius while previewing
   if state.ui.selectedBuildingType == 'lumberyard' then
@@ -189,7 +188,7 @@ function love.load()
 end
 
 function love.update(dt)
-  if state.ui.isPaused or state.ui.isBuildMenuOpen or state.ui.isVillagersPanelOpen then return end
+  if state.ui.isPaused or state.ui.isBuildMenuOpen or state.ui.isVillagersPanelOpen or state.ui.isBuildQueueOpen then return end
   local isInitial = state.ui._pauseTimeForInitial
 
   -- Auto speed by day/night
@@ -487,6 +486,7 @@ function love.draw()
   ui.drawTopButtons(state)
   ui.drawBuildMenu(state, state.buildingDefs)
   ui.drawHUD(state)
+  ui.drawBuildQueue(state)
   ui.drawMiniMap(state)
   ui.drawMissionPanel(state)
   ui.drawPrompt(state)
@@ -656,6 +656,79 @@ function love.mousepressed(x, y, button)
     return
   end
 
+  if ui.isOverQueueButton(x, y) then
+    state.ui.isBuildQueueOpen = not state.ui.isBuildQueueOpen
+    state.ui.isPaused = false
+    state.ui.isBuildMenuOpen = false
+    state.ui.isPlacingBuilding = false
+    state.ui.selectedBuildingType = nil
+    state.ui.isPlacingRoad = false
+    state.ui.roadStartTile = nil
+    state.ui.isVillagersPanelOpen = false
+    state.ui.isDemolishMode = false
+    return
+  end
+
+  -- Build Queue row interactions when panel open (independent of selection)
+  if state.ui.isBuildQueueOpen and state.ui._queueButtons then
+    for _, row in ipairs(state.ui._queueButtons) do
+      local up, down, pause, remove, rr = row.up, row.down, row.pause, row.remove, row.rowRect
+      -- handle buttons first (so rowRect doesn't swallow clicks)
+      if up and x >= up.x and x <= up.x + up.w and y >= up.y and y <= up.y + up.h then
+        -- move item up one spot in queue order
+        local q = state.game.buildQueue
+        if q then
+          for i=2,#q do
+            if q[i].id == row.id then
+              local tmp = q[i-1]
+              q[i-1] = q[i]
+              q[i] = tmp
+              break
+            end
+          end
+        end
+        return
+      elseif down and x >= down.x and x <= down.x + down.w and y >= down.y and y <= down.y + down.h then
+        -- move item down one spot in queue order
+        local q = state.game.buildQueue
+        if q then
+          for i=1,#q-1 do
+            if q[i].id == row.id then
+              local tmp = q[i+1]
+              q[i+1] = q[i]
+              q[i] = tmp
+              break
+            end
+          end
+        end
+        return
+      elseif pause and x >= pause.x and x <= pause.x + pause.w and y >= pause.y and y <= pause.y + pause.h then
+        for _, q in ipairs(state.game.buildQueue or {}) do if q.id == row.id then q.paused = not (q.paused or false) break end end
+        return
+      elseif remove and x >= remove.x and x <= remove.x + remove.w and y >= remove.y and y <= remove.y + remove.h then
+        -- cancel building (refund per rules)
+        local target
+        for _, b in ipairs(state.game.buildings) do if b.id == row.id then target = b break end end
+        if target then require('src.buildings').cancel(state, target) end
+        return
+      end
+      if rr and x >= rr.x and x <= rr.x + rr.w and y >= rr.y and y <= rr.y + rr.h then
+        -- click row to pan camera to that building
+        local target
+        for _, b in ipairs(state.game.buildings) do if b.id == row.id then target = b break end end
+        if target then
+          local TILE = C.TILE_SIZE
+          local screenW, screenH = love.graphics.getDimensions()
+          local worldX = target.tileX * TILE + TILE / 2
+          local worldY = target.tileY * TILE + TILE / 2
+          state.camera.x = utils.clamp(worldX - (screenW / state.camera.scale) / 2, 0, state.world.tilesX * TILE - (screenW / state.camera.scale))
+          state.camera.y = utils.clamp(worldY - (screenH / state.camera.scale) / 2, 0, state.world.tilesY * TILE - (screenH / state.camera.scale))
+          return
+        end
+      end
+    end
+  end
+
      if state.ui.isBuildMenuOpen then
       local option = ui.getBuildMenuOptionAt(x, y)
       if option then
@@ -696,6 +769,57 @@ function love.mousepressed(x, y, button)
         state.ui.promptDuration = 2
         state.ui.promptSticky = false
         return
+      end
+      -- queue priority controls (if selected building is in queue)
+      local qu = sel._queueUpBtn
+      local qd = sel._queueDownBtn
+      if qu and x >= qu.x and x <= qu.x + qu.w and y >= qu.y and y <= qu.y + qu.h then
+        if sel.id and state.game.buildQueue then
+          for _, q in ipairs(state.game.buildQueue) do if q.id == sel.id then q.priority = (q.priority or 0) - 1 break end end
+        end
+        return
+      end
+      if qd and x >= qd.x and x <= qd.x + qd.w and y >= qd.y and y <= qd.y + qd.h then
+        if sel.id and state.game.buildQueue then
+          for _, q in ipairs(state.game.buildQueue) do if q.id == sel.id then q.priority = (q.priority or 0) + 1 break end end
+        end
+        return
+      end
+      -- Build Queue row interactions when panel open
+      if state.ui.isBuildQueueOpen and state.ui._queueButtons then
+        for _, row in ipairs(state.ui._queueButtons) do
+          local up, down, pause, remove, rr = row.up, row.down, row.pause, row.remove, row.rowRect
+          if rr and x >= rr.x and x <= rr.x + rr.w and y >= rr.y and y <= rr.y + rr.h then
+            -- click row to pan camera to that building
+            local target
+            for _, b in ipairs(state.game.buildings) do if b.id == row.id then target = b break end end
+            if target then
+              local TILE = C.TILE_SIZE
+              local screenW, screenH = love.graphics.getDimensions()
+              local worldX = target.tileX * TILE + TILE / 2
+              local worldY = target.tileY * TILE + TILE / 2
+              state.camera.x = utils.clamp(worldX - (screenW / state.camera.scale) / 2, 0, state.world.tilesX * TILE - (screenW / state.camera.scale))
+              state.camera.y = utils.clamp(worldY - (screenH / state.camera.scale) / 2, 0, state.world.tilesY * TILE - (screenH / state.camera.scale))
+              return
+            end
+          end
+          if up and x >= up.x and x <= up.x + up.w and y >= up.y and y <= up.y + up.h then
+            for _, q in ipairs(state.game.buildQueue or {}) do if q.id == row.id then q.priority = (q.priority or 0) - 1 break end end
+            return
+          elseif down and x >= down.x and x <= down.x + down.w and y >= down.y and y <= down.y + down.h then
+            for _, q in ipairs(state.game.buildQueue or {}) do if q.id == row.id then q.priority = (q.priority or 0) + 1 break end end
+            return
+          elseif pause and x >= pause.x and x <= pause.x + pause.w and y >= pause.y and y <= pause.y + pause.h then
+            for _, q in ipairs(state.game.buildQueue or {}) do if q.id == row.id then q.paused = not (q.paused or false) break end end
+            return
+          elseif remove and x >= remove.x and x <= remove.x + remove.w and y >= remove.y and y <= remove.y + remove.h then
+            -- cancel building (refund per rules)
+            local target
+            for _, b in ipairs(state.game.buildings) do if b.id == row.id then target = b break end end
+            if target then require('src.buildings').cancel(state, target) end
+            return
+          end
+        end
       end
     end
   end
@@ -770,11 +894,7 @@ function love.mousepressed(x, y, button)
   if state.ui.isPlacingBuilding and state.ui.selectedBuildingType then
     local tileX, tileY = screenToTile(x, y)
     if not isOverUI(x, y)
-      and buildings.canPlaceAt(state, tileX, tileY)
-      and (state.ui._isFreeInitialBuilder or buildings.canAfford(state, state.ui.selectedBuildingType)) then
-      if not state.ui._isFreeInitialBuilder then
-        buildings.payCost(state, state.ui.selectedBuildingType)
-      end
+      and buildings.canPlaceAt(state, tileX, tileY) then
       local newB = buildings.place(state, state.ui.selectedBuildingType, tileX, tileY)
       if newB and newB.type == 'builder' and state.ui._pauseTimeForInitial then
         -- Instantly complete the initial builder and grant residents (capacity was added on placement)
@@ -795,6 +915,16 @@ function love.mousepressed(x, y, button)
         -- Start time at morning
         state.time.t = state.time.dayLength * 0.25
         state.time.normalized = state.time.t / state.time.dayLength
+      end
+      -- Mark any normal placed building as planned (builders will start when resources are available)
+      if newB and not state.ui._isFreeInitialBuilder then
+        newB.construction = newB.construction or {}
+        newB.construction.waitingForResources = true
+        -- Ensure it is in the build queue
+        state.game.buildQueue = state.game.buildQueue or {}
+        local exists = false
+        for _, q in ipairs(state.game.buildQueue) do if q.id == newB.id then exists = true; break end end
+        if not exists then table.insert(state.game.buildQueue, { id = newB.id, priority = 0, paused = false }) end
       end
       state.ui.isPlacingBuilding = false
       state.ui.selectedBuildingType = nil
@@ -833,6 +963,20 @@ function love.keypressed(key)
     state.ui.selectedBuildingType = nil
   elseif key == 'v' then
     state.ui.isVillagersPanelOpen = not state.ui.isVillagersPanelOpen
+  elseif key == 'q' then
+    -- Toggle build queue only; do not open pause menu
+    state.ui.isBuildQueueOpen = not state.ui.isBuildQueueOpen
+    state.ui.isPaused = false
+    if state.ui.isBuildQueueOpen then
+      -- close other panels/modes for clarity
+      state.ui.isBuildMenuOpen = false
+      state.ui.isVillagersPanelOpen = false
+      state.ui.isPlacingBuilding = false
+      state.ui.selectedBuildingType = nil
+      state.ui.isPlacingRoad = false
+      state.ui.roadStartTile = nil
+    end
+    return
   elseif key == '1' then
     state.time.speed = 1
   elseif key == '2' then

@@ -35,7 +35,7 @@ local function serializeState(state)
 			tileY = b.tileY,
 			assigned = b.assigned or 0,
 			storage = (b.storage and { wood = b.storage.wood or 0, food = b.storage.food or 0 }) or {},
-			construction = b.construction and { required = b.construction.required, progress = b.construction.progress, complete = b.construction.complete } or nil
+			construction = b.construction and { required = b.construction.required, progress = b.construction.progress, complete = b.construction.complete, waitingForResources = b.construction.waitingForResources or false } or nil
 		}
 		if b.type == 'farm' and b.farm then
 			sb.farm = { acc = b.farm.acc or 0, plots = b.farm.plots or {} }
@@ -47,6 +47,12 @@ local function serializeState(state)
 	for k, rd in pairs(state.game.roads or {}) do
 		S.game.roads[#S.game.roads + 1] = { tileX = rd.tileX, tileY = rd.tileY }
 	end
+	-- Build queue
+	S.game.buildQueue = {}
+	for _, q in ipairs(state.game.buildQueue or {}) do
+		S.game.buildQueue[#S.game.buildQueue + 1] = { id = q.id, priority = q.priority or 0, paused = q.paused or false }
+	end
+	S.game._nextBuildingId = state.game._nextBuildingId or 1
 	-- Population
 	S.game.population = cloneShallow(state.game.population or {})
 	return S
@@ -101,7 +107,7 @@ local function deserializeInto(state, S)
 			construction = sb.construction or nil
 		}
 		-- ensure storage subtables exist for known types
-		if b.type == 'warehouse' or b.type == 'builder' then
+		if b.type == 'warehouse' or b.type == 'builder' or b.type == 'market' then
 			b.storage = b.storage or {}
 			b.storage.wood = b.storage.wood or 0
 			b.storage.food = b.storage.food or 0
@@ -116,6 +122,12 @@ local function deserializeInto(state, S)
 	for _, rd in ipairs(S.game.roads or {}) do
 		state.game.roads[string.format('%d,%d', rd.tileX, rd.tileY)] = { tileX = rd.tileX, tileY = rd.tileY }
 	end
+	-- Build queue
+	state.game.buildQueue = {}
+	for _, q in ipairs(S.game.buildQueue or {}) do
+		state.game.buildQueue[#state.game.buildQueue + 1] = { id = q.id, priority = q.priority or 0, paused = q.paused or false }
+	end
+	state.game._nextBuildingId = S.game._nextBuildingId or (state.game._nextBuildingId or 1)
 	-- Population
 	state.game.population = S.game.population or { total = 0, assigned = 0, capacity = 0 }
 end

@@ -31,6 +31,7 @@ state.ui = {
   isPlacingRoad = false,
   roadStartTile = nil,
   isVillagersPanelOpen = false,
+  isBuildQueueOpen = false,
   _villagersPanelButtons = nil, -- temp bounds for assign/unassign in panel
   _speedButtons = nil,
   _miniMap = nil,
@@ -62,6 +63,8 @@ state.game = {
 	particles = {},
 	roads = {}, -- map of road tiles
 	villagers = {}, -- persistent villager entities
+	buildQueue = {}, -- planned builds in order
+	_nextBuildingId = 1,
 	roadSpeed = { onRoadMultiplier = 1.5 }, -- tuning for road speed bonus
 	jobs = { demolitions = {}, _nextId = 1 },
 	starving = false, -- when true, workers slowed

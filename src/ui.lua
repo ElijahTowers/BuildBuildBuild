@@ -11,6 +11,7 @@ local ui = {}
 ui.buildButton = { x = 16, y = 16, width = 120, height = 40, label = "Build" }
 ui.roadButton = { x = 16 + 120 + 8, y = 16, width = 120, height = 40, label = "Roads" }
 ui.villagersButton = { x = 16 + (120 + 8) * 2, y = 16, width = 140, height = 40, label = "Villagers" }
+ui.queueButton = { x = 16 + (120 + 8) * 2 + 140 + 8, y = 16, width = 140, height = 40, label = "Build Queue" }
 
 
 ui.buildMenu = {
@@ -91,6 +92,11 @@ function ui.isOverVillagersButton(mx, my)
   return utils.isPointInRect(mx, my, b.x, b.y, b.width, b.height)
 end
 
+function ui.isOverQueueButton(mx, my)
+  local b = ui.queueButton
+  return utils.isPointInRect(mx, my, b.x, b.y, b.width, b.height)
+end
+
 
 
 function ui.isOverBuildMenu(mx, my)
@@ -133,6 +139,7 @@ function ui.drawTopButtons(state)
   drawButton(ui.buildButton, false, "C")
   drawButton(ui.roadButton, state.ui.isPlacingRoad, "R")
   drawButton(ui.villagersButton, state.ui.isVillagersPanelOpen, "V")
+  drawButton(ui.queueButton, state.ui.isBuildQueueOpen, "Q")
 end
 
 function ui.drawBuildMenu(state, buildingDefs)
@@ -254,6 +261,93 @@ function ui.drawVillagersPanel(state)
   state.ui._villagersPanelButtons = btns
 end
 
+function ui.drawBuildQueue(state)
+  if not state.ui.isBuildQueueOpen then return end
+  local screenW, screenH = love.graphics.getDimensions()
+  local w, h = 560, 260
+  local x = (screenW - w) / 2
+  local y = (screenH - h) / 2
+  love.graphics.setColor(colors.uiPanel)
+  love.graphics.rectangle('fill', x, y, w, h, 10, 10)
+  love.graphics.setColor(colors.uiPanelOutline)
+  love.graphics.rectangle('line', x, y, w, h, 10, 10)
+  love.graphics.setColor(colors.text)
+  love.graphics.print('Build Queue', x + 12, y + 12)
+  local headerY = y + 36
+  local rowH = 34
+  local btnW, btnH = 24, 20
+  state.ui._queueButtons = {}
+  local byId = {}
+  for _, b in ipairs(state.game.buildings) do byId[b.id] = b end
+  local qraw = state.game.buildQueue or {}
+  if #qraw == 0 then
+    love.graphics.setColor(colors.text)
+    love.graphics.print('Queue is empty. Place buildings to add plans here.', x + 12, headerY)
+    return
+  end
+  -- draw in current queue order; top is highest priority
+  for i, q in ipairs(qraw) do
+    local b = byId[q.id]
+    if b then
+      local ry = headerY + (i - 1) * rowH
+      -- background per row
+      love.graphics.setColor(0, 0, 0, 0.2)
+      love.graphics.rectangle('fill', x + 8, ry, w - 16, rowH - 4, 6, 6)
+      love.graphics.setColor(colors.text)
+      -- icon
+      buildings.drawIcon(b.type, x + 18, ry + (rowH/2), 24, 0)
+      -- name + coords
+      local status
+      if b.construction and b.construction.complete then status = 'Complete'
+      elseif b.construction and b.construction.waitingForResources then status = 'Waiting'
+      elseif b._claimedBy then status = 'Building…' else status = 'Ready' end
+      love.graphics.print(string.format('%s  (%d,%d)  [%s]', b.type, b.tileX, b.tileY, status), x + 44, ry + 8)
+      -- priority up/down
+      local upx = x + w - 200; local upy = ry + 6
+      local dnx = upx + btnW + 6; local dny = upy
+      love.graphics.setColor(colors.button)
+      love.graphics.rectangle('fill', upx, upy, btnW, btnH, 6, 6)
+      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.rectangle('line', upx, upy, btnW, btnH, 6, 6)
+      love.graphics.setColor(colors.text)
+      love.graphics.printf('^', upx, upy + 2, btnW, 'center')
+      love.graphics.setColor(colors.button)
+      love.graphics.rectangle('fill', dnx, dny, btnW, btnH, 6, 6)
+      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.rectangle('line', dnx, dny, btnW, btnH, 6, 6)
+      love.graphics.setColor(colors.text)
+      love.graphics.printf('v', dnx, dny + 2, btnW, 'center')
+      -- pause/resume
+      local px = x + w - 140; local py = upy
+      local label = (q.paused and 'Resume') or 'Pause'
+      local pw = 64
+      love.graphics.setColor(colors.button)
+      love.graphics.rectangle('fill', px, py, pw, btnH, 6, 6)
+      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.rectangle('line', px, py, pw, btnH, 6, 6)
+      love.graphics.setColor(colors.text)
+      love.graphics.printf(label, px, py + 2, pw, 'center')
+      -- remove
+      local rx = x + w - 70; local ryb = upy
+      love.graphics.setColor(0.8, 0.3, 0.3, 1)
+      love.graphics.rectangle('fill', rx, ryb, 60, btnH, 6, 6)
+      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.rectangle('line', rx, ryb, 60, btnH, 6, 6)
+      love.graphics.setColor(1,1,1,1)
+      love.graphics.printf('Remove', rx, ryb + 2, 60, 'center')
+
+      state.ui._queueButtons[#state.ui._queueButtons + 1] = {
+        id = b.id,
+        row = i,
+        up = { x = upx, y = upy, w = btnW, h = btnH },
+        down = { x = dnx, y = dny, w = btnW, h = btnH },
+        pause = { x = px, y = py, w = pw, h = btnH },
+        remove = { x = rx, y = ryb, w = 60, h = btnH },
+        rowRect = { x = x + 8, y = ry, w = w - 16, h = rowH - 4 }
+      }
+    end
+  end
+end
 -- Minimap (top-right). Shows roads, trees, buildings, and camera viewport.
 function ui.drawMiniMap(state)
   local TILE = constants.TILE_SIZE
@@ -620,6 +714,39 @@ function ui.drawSelectedPanel(state)
   love.graphics.setColor(colors.text)
   love.graphics.print(string.format('%s', sel.type), mx + 12, my + 12)
   love.graphics.print(string.format('Location: (%d,%d)', sel.tileX, sel.tileY), mx + 12, my + 30)
+  if sel.construction and not sel.construction.complete and sel.construction.waitingForResources then
+    love.graphics.setColor(0.95, 0.7, 0.2, 1)
+    love.graphics.print('Planned: waiting for resources', mx + 160, my + 12)
+  end
+  if sel.id then
+    local pos, total, prio
+    total = #(state.game.buildQueue or {})
+    for i, q in ipairs(state.game.buildQueue or {}) do
+      if q.id == sel.id then pos = i; prio = q.priority or 0; break end
+    end
+    if pos then
+      love.graphics.setColor(colors.text)
+      love.graphics.print(string.format('Queue: #%d / %d  (priority %d)', pos, total, prio or 0), mx + 12, my + 92)
+      -- simple priority up/down buttons
+      local btnW, btnH = 24, 20
+      local upx, upy = mx + 250, my + 88
+      local dnx, dny = upx + btnW + 6, upy
+      love.graphics.setColor(colors.button)
+      love.graphics.rectangle('fill', upx, upy, btnW, btnH, 6, 6)
+      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.rectangle('line', upx, upy, btnW, btnH, 6, 6)
+      love.graphics.setColor(colors.text)
+      love.graphics.printf('^', upx, upy + 2, btnW, 'center')
+      love.graphics.setColor(colors.button)
+      love.graphics.rectangle('fill', dnx, dny, btnW, btnH, 6, 6)
+      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.rectangle('line', dnx, dny, btnW, btnH, 6, 6)
+      love.graphics.setColor(colors.text)
+      love.graphics.printf('v', dnx, dny + 2, btnW, 'center')
+      sel._queueUpBtn = { x = upx, y = upy, w = btnW, h = btnH }
+      sel._queueDownBtn = { x = dnx, y = dny, w = btnW, h = btnH }
+    end
+  end
 
   -- staffing controls if applicable
   sel._assignBtn, sel._unassignBtn = nil, nil
@@ -663,6 +790,21 @@ function ui.drawSelectedPanel(state)
     love.graphics.printf('+', addX, addY + 4, btnW, 'center')
     sel._unassignBtn = { x = remX, y = remY, w = btnW, h = btnH }
     sel._assignBtn = { x = addX, y = addY, w = btnW, h = btnH }
+  elseif sel.type == 'market' then
+    local pop = state.game.population.total or 0
+    local stock = (sel.storage and sel.storage.food) or 0
+    local demand = pop
+    local deficit = math.max(0, demand - stock)
+    love.graphics.setColor(colors.text)
+    love.graphics.print(string.format('Stock: %d food', stock), mx + 12, my + 48)
+    love.graphics.print(string.format("Tonight's demand: %d", demand), mx + 12, my + 68)
+    if deficit > 0 then
+      love.graphics.setColor(0.95, 0.3, 0.3, 1)
+      love.graphics.print(string.format('Deficit: %d (villagers will starve)', deficit), mx + 12, my + 88)
+    else
+      love.graphics.setColor(0.3, 0.85, 0.4, 1)
+      love.graphics.print('Ready for dinner', mx + 12, my + 88)
+    end
   end
 
   -- Demolish button

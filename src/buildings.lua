@@ -118,6 +118,7 @@ function buildings.place(state, buildingType, tileX, tileY)
   elseif buildingType == 'farm' then color = { 0.7, 0.8, 0.3, 1.0 }
   end
   local newB = {
+    id = (state.game._nextBuildingId or 1),
     type = buildingType,
     tileX = tileX,
     tileY = tileY,
@@ -125,11 +126,12 @@ function buildings.place(state, buildingType, tileX, tileY)
     anim = { appear = 0, t = 0, active = false },
     assigned = 0,
     currentResidents = 0,
-    storage = { wood = 0 },
+    storage = { wood = 0, food = 0 },
     construction = {
       required = (def and def.buildRequired) or 10,
       progress = 0,
-      complete = (buildingType == 'house' and false) or false
+      complete = (buildingType == 'house' and false) or false,
+      waitingForResources = false
     }
   }
   
@@ -150,6 +152,13 @@ function buildings.place(state, buildingType, tileX, tileY)
   end
 
   table.insert(state.game.buildings, newB)
+  state.game._nextBuildingId = (state.game._nextBuildingId or 1) + 1
+
+  -- If placed while waiting for resources, push into build queue
+  if newB.construction and newB.construction.waitingForResources then
+    state.game.buildQueue = state.game.buildQueue or {}
+    table.insert(state.game.buildQueue, { id = newB.id, priority = 0, paused = false })
+  end
 
   if buildingType == 'house' then
     local cap = (state.buildingDefs.house.residents or 0)
@@ -180,7 +189,66 @@ function buildings.update(state, dt)
       local staffed = (b.assigned or 0) > 0
       b.anim.active = staffed and b.construction and b.construction.complete
     end
+
+    -- If waiting for resources, check affordability and auto-pay once available
+    if b.construction and b.construction.waitingForResources and not b.construction.complete then
+      if buildings.canAfford(state, b.type) then
+        buildings.payCost(state, b.type)
+        b.construction.waitingForResources = false
+      end
+    end
   end
+  -- remove completed builds from queue
+  if state.game.buildQueue and #state.game.buildQueue > 0 then
+    local newQ = {}
+    local byId = {}
+    for _, bb in ipairs(state.game.buildings) do byId[bb.id] = bb end
+    for _, q in ipairs(state.game.buildQueue) do
+      local bb = byId[q.id]
+      if bb and bb.construction and not bb.construction.complete then
+        table.insert(newQ, q)
+      end
+    end
+    state.game.buildQueue = newQ
+  end
+end
+
+-- Cancel a planned/under-construction building
+function buildings.cancel(state, b)
+  if not b then return false end
+  -- Refund policy: 100% if waitingForResources, else 50% if construction started and not complete
+  local def = state.buildingDefs[b.type]
+  local costWood = (def and def.cost and def.cost.wood) or 0
+  local refund = 0
+  if b.construction and b.construction.waitingForResources then
+    refund = costWood -- nothing was paid yet; grant full refund
+  elseif b.construction and not b.construction.complete then
+    refund = math.floor(costWood * 0.5 + 0.5)
+  end
+  if refund > 0 then
+    state.game.resources.wood = (state.game.resources.wood or 0) + refund
+  end
+  -- Roll back capacity added on placement for house/builder
+  if b.type == 'house' then
+    local cap = (state.buildingDefs.house.residents or 0)
+    state.game.population.capacity = math.max(0, (state.game.population.capacity or 0) - cap)
+  elseif b.type == 'builder' then
+    local cap = (state.buildingDefs.builder.residents or 0)
+    state.game.population.capacity = math.max(0, (state.game.population.capacity or 0) - cap)
+  end
+  -- Remove from build queue
+  if state.game.buildQueue and #state.game.buildQueue > 0 then
+    local newQ = {}
+    for _, q in ipairs(state.game.buildQueue) do
+      if q.id ~= b.id then table.insert(newQ, q) end
+    end
+    state.game.buildQueue = newQ
+  end
+  -- Remove from buildings list
+  local idx
+  for i, bb in ipairs(state.game.buildings) do if bb == b then idx = i; break end end
+  if idx then table.remove(state.game.buildings, idx) end
+  return true
 end
 
 function buildings.assignOne(state, b)

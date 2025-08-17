@@ -180,14 +180,38 @@ local function findNearestMarket(state, x, y)
 end
 
 local function findConstructionTarget(state, bx, by)
+  local queue = state.game.buildQueue or {}
+  local buildingsById = {}
+  for _, b in ipairs(state.game.buildings) do buildingsById[b.id] = b end
+  -- sort by priority (asc), then by index
+  local indexed = {}
+  for i, q in ipairs(queue) do indexed[#indexed+1] = { q = q, idx = i } end
+  table.sort(indexed, function(a, b)
+    if (a.q.priority or 0) == (b.q.priority or 0) then return a.idx < b.idx end
+    return (a.q.priority or 0) < (b.q.priority or 0)
+  end)
   local best, bestDistSq
   bestDistSq = math.huge
-  for _, tb in ipairs(state.game.buildings) do
-    if tb.construction and not tb.construction.complete then
+  for _, it in ipairs(indexed) do
+    local q = it.q
+    local tb = buildingsById[q.id]
+    if tb and tb.construction and not tb.construction.complete and not q.paused and not (tb.construction.waitingForResources) then
       local d = (tb.tileX - bx) ^ 2 + (tb.tileY - by) ^ 2
       if d < bestDistSq then
         bestDistSq = d
         best = tb
+      end
+    end
+  end
+  -- fallback to nearest non-complete if queue empty/none ready
+  if not best then
+    for _, tb in ipairs(state.game.buildings) do
+      if tb.construction and not tb.construction.complete and not (tb.construction.waitingForResources) then
+        local d = (tb.tileX - bx) ^ 2 + (tb.tileY - by) ^ 2
+        if d < bestDistSq then
+          bestDistSq = d
+          best = tb
+        end
       end
     end
   end
@@ -708,6 +732,8 @@ function workers.update(state, dt)
                     c.progress = math.min(c.required, (c.progress or 0) + ratePerWorker * dt)
                     if c.progress >= c.required then
                       c.complete = true
+                      -- free claim
+                      w.targetBuilding._claimedBy = nil
                       if w.targetBuilding.type == 'house' then
                         local cap = (state.buildingDefs.house.residents or 0)
                         state.game.population.total = (state.game.population.total or 0) + cap
