@@ -190,13 +190,7 @@ function buildings.update(state, dt)
       b.anim.active = staffed and b.construction and b.construction.complete
     end
 
-    -- If waiting for resources, check affordability and auto-pay once available
-    if b.construction and b.construction.waitingForResources and not b.construction.complete then
-      if buildings.canAfford(state, b.type) then
-        buildings.payCost(state, b.type)
-        b.construction.waitingForResources = false
-      end
-    end
+    -- Do not auto-pay; builders fetch and spend when they start the job
   end
   -- remove completed builds from queue
   if state.game.buildQueue and #state.game.buildQueue > 0 then
@@ -391,6 +385,43 @@ function buildings.drawAll(state)
       love.graphics.rectangle('fill', -TILE_SIZE / 2, TILE_SIZE * 0.45, TILE_SIZE * p, 6, 3, 3)
       love.graphics.setColor(colors.outline)
       love.graphics.rectangle('line', -TILE_SIZE / 2, TILE_SIZE * 0.45, TILE_SIZE, 6, 3, 3)
+    end
+
+    -- Fancy exclamation indicator when workers have nothing to do
+    if b._noWorkReason then
+      local t = (b.anim and b.anim.t or 0)
+      local anchorX = TILE_SIZE * 0.35
+      local anchorY = -TILE_SIZE * 0.38
+      local bob = math.sin(t * 4.0) * 2
+      local pulse = 1 + 0.06 * math.sin(t * 6.0)
+      love.graphics.push()
+      love.graphics.translate(anchorX, anchorY + bob)
+      love.graphics.scale(pulse, pulse)
+      -- soft halo rings
+      for i = 1, 3 do
+        local a = 0.18 - (i - 1) * 0.05
+        if a > 0 then
+          love.graphics.setColor(1, 0.85, 0.2, a)
+          love.graphics.circle('line', 0, 0, 10 + i * 3)
+        end
+      end
+      -- badge body
+      love.graphics.setColor(1, 0.9, 0.25, 1)
+      love.graphics.circle('fill', 0, 0, 9)
+      -- outline
+      love.graphics.setColor(0.35, 0.2, 0, 0.9)
+      love.graphics.setLineWidth(2)
+      love.graphics.circle('line', 0, 0, 9)
+      -- exclamation glyph
+      love.graphics.setLineWidth(3)
+      love.graphics.line(0, -5, 0, 1)
+      love.graphics.setLineWidth(1)
+      love.graphics.circle('fill', 0, 4, 2.4)
+      -- tether line to building top
+      love.graphics.setColor(0, 0, 0, 0.2)
+      love.graphics.setLineWidth(1)
+      love.graphics.line(0, 9, -anchorX * 0.2, TILE_SIZE * 0.18)
+      love.graphics.pop()
     end
 
     -- Farm crops around

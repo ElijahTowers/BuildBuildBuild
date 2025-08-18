@@ -180,42 +180,27 @@ local function findNearestMarket(state, x, y)
 end
 
 local function findConstructionTarget(state, bx, by)
+  -- Always pick the first item in the queue (top of list), even if waitingForResources
   local queue = state.game.buildQueue or {}
-  local buildingsById = {}
-  for _, b in ipairs(state.game.buildings) do buildingsById[b.id] = b end
-  -- sort by priority (asc), then by index
-  local indexed = {}
-  for i, q in ipairs(queue) do indexed[#indexed+1] = { q = q, idx = i } end
-  table.sort(indexed, function(a, b)
-    if (a.q.priority or 0) == (b.q.priority or 0) then return a.idx < b.idx end
-    return (a.q.priority or 0) < (b.q.priority or 0)
-  end)
-  local best, bestDistSq
-  bestDistSq = math.huge
-  for _, it in ipairs(indexed) do
-    local q = it.q
-    local tb = buildingsById[q.id]
-    if tb and tb.construction and not tb.construction.complete and not q.paused and not (tb.construction.waitingForResources) then
-      local d = (tb.tileX - bx) ^ 2 + (tb.tileY - by) ^ 2
-      if d < bestDistSq then
-        bestDistSq = d
-        best = tb
-      end
-    end
-  end
-  -- fallback to nearest non-complete if queue empty/none ready
-  if not best then
-    for _, tb in ipairs(state.game.buildings) do
-      if tb.construction and not tb.construction.complete and not (tb.construction.waitingForResources) then
-        local d = (tb.tileX - bx) ^ 2 + (tb.tileY - by) ^ 2
-        if d < bestDistSq then
-          bestDistSq = d
-          best = tb
+  if #queue > 0 then
+    for i = 1, #queue do
+      local q = queue[i]
+      if not q.paused then
+        for _, tb in ipairs(state.game.buildings) do
+          if tb.id == q.id and tb.construction and not tb.construction.complete then
+            return tb
+          end
         end
       end
     end
   end
-  return best
+  -- fallback: any other under-construction building
+  for _, tb in ipairs(state.game.buildings) do
+    if tb.construction and not tb.construction.complete then
+      return tb
+    end
+  end
+  return nil
 end
 
 -- Remove a persistent villager from global list
@@ -485,6 +470,26 @@ function workers.update(state, dt)
     if b.type == "lumberyard" then
       ensureWorkerCount(state, b)
       local storageFull = isWoodStorageFull(state)
+      -- compute availability of any trees in radius
+      local anyTree = false
+      do
+        local def = state.buildingDefs.lumberyard
+        local r2 = (def.radiusTiles or 0)^2
+        for _, t in ipairs(state.game.trees) do
+          if t.alive then
+            local dsq = (b.tileX - t.tileX)^2 + (b.tileY - t.tileY)^2
+            if dsq <= r2 then anyTree = true; break end
+          end
+        end
+      end
+      -- set building-level no work reason for UI
+      if (b.assigned or 0) > 0 and isDay then
+        if storageFull then b._noWorkReason = 'Storage full'
+        elseif not anyTree then b._noWorkReason = 'No trees nearby'
+        else b._noWorkReason = nil end
+      else
+        b._noWorkReason = nil
+      end
       if b.workers then
         for _, w in ipairs(b.workers) do
           local def = state.buildingDefs.lumberyard
@@ -658,6 +663,13 @@ function workers.update(state, dt)
       end
     elseif b.type == 'builder' then
       ensureWorkerCount(state, b)
+      -- compute if there is any project to work on (top queue or any)
+      if (b.assigned or 0) > 0 and isDay then
+        local tgt = findConstructionTarget(state, b.tileX, b.tileY)
+        if tgt then b._noWorkReason = nil else b._noWorkReason = 'No projects' end
+      else
+        b._noWorkReason = nil
+      end
       if b.workers then
         local def = state.buildingDefs.builder
         local speed = def.workerSpeed or 120
@@ -726,6 +738,41 @@ function workers.update(state, dt)
               if w.targetBuilding then
                 local tx = w.targetBuilding.tileX * TILE + TILE / 2
                 local ty = w.targetBuilding.tileY * TILE + TILE / 2
+                -- On first engagement, pay cost and spawn pickup from source
+                if w.targetBuilding and w.targetBuilding.construction and w.targetBuilding.construction.waitingForResources then
+                  local btype = w.targetBuilding.type
+                  local def = state.buildingDefs[btype]
+                  local need = (def and def.cost and def.cost.wood) or 0
+                  if need > 0 then
+                    -- remove from base first then warehouses (match payCost semantics), but also spawn a visual at the source
+                    local base = state.game.resources.wood or 0
+                    local takeFromBase = math.min(base, need)
+                    if takeFromBase > 0 then
+                      state.game.resources.wood = base - takeFromBase
+                      -- HUD pickup surrogate near top bar
+                      particles.spawnDustBurst(state.game.particles, state.camera.x + 60, state.camera.y + 26)
+                    end
+                    local remaining = need - takeFromBase
+                    if remaining > 0 then
+                      for _, bb in ipairs(state.game.buildings) do
+                        if remaining <= 0 then break end
+                        if bb.type == 'warehouse' then
+                          bb.storage = bb.storage or {}
+                          local wv = bb.storage.wood or 0
+                          local take = math.min(wv, remaining)
+                          if take > 0 then
+                            bb.storage.wood = wv - take
+                            local sx = bb.tileX * TILE + TILE / 2
+                            local sy = bb.tileY * TILE + TILE / 2
+                            particles.spawnDustBurst(state.game.particles, sx, sy)
+                          end
+                          remaining = remaining - take
+                        end
+                      end
+                    end
+                  end
+                  w.targetBuilding.construction.waitingForResources = false
+                end
                 if goTo(w, tx, ty, speed, dt, state) then
                   local c = w.targetBuilding.construction
                   if c and not c.complete then
