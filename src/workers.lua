@@ -444,11 +444,27 @@ end
 
 local function drawVillagers(state)
   if not state.ui.showWorldVillagerDots then return end
+  local TILE = constants.TILE_SIZE
   for _, v in ipairs(state.game.villagers) do
+    -- Hide villager when visually "inside" their home or workplace
+    local hide = false
+    if v.state == 'atHome' and v.home then
+      local hx = v.home.tileX * TILE + TILE / 2
+      local hy = v.home.tileY * TILE + TILE / 2
+      local dx, dy = v.x - hx, v.y - hy
+      if dx * dx + dy * dy <= (TILE * 0.38) * (TILE * 0.38) then hide = true end
+    elseif v.state == 'working' and v.work then
+      local wx = v.work.tileX * TILE + TILE / 2
+      local wy = v.work.tileY * TILE + TILE / 2
+      local dx, dy = v.x - wx, v.y - wy
+      if dx * dx + dy * dy <= (TILE * 0.38) * (TILE * 0.38) then hide = true end
+    end
+    if hide then goto continue end
     love.graphics.setColor(colors.worker)
     love.graphics.rectangle('fill', v.x - 4, v.y - 4, 8, 8, 2, 2)
     love.graphics.setColor(colors.outline)
     love.graphics.rectangle('line', v.x - 4, v.y - 4, 8, 8, 2, 2)
+    ::continue::
   end
 end
 
@@ -918,6 +934,14 @@ function workers.draw(state)
   for _, b in ipairs(state.game.buildings) do
     if b.type == "lumberyard" and b.workers then
       for _, w in ipairs(b.workers) do
+        local centerX = b.tileX * TILE_SIZE + TILE_SIZE / 2
+        local centerY = b.tileY * TILE_SIZE + TILE_SIZE / 2
+        local dx, dy = (w.x - centerX), (w.y - centerY)
+        local insideBuilding = (dx * dx + dy * dy) <= (TILE_SIZE * 0.38) * (TILE_SIZE * 0.38)
+        if insideBuilding then
+          -- hide worker to simulate entering the building
+          goto lumberyard_continue
+        end
         -- on-road streak
         if w._onRoad then
           love.graphics.setColor(1, 1, 1, 0.15)
@@ -956,9 +980,17 @@ function workers.draw(state)
           love.graphics.setColor(colors.choppingRing)
           love.graphics.circle("line", tx, ty, TILE_SIZE * 0.55)
         end
+        ::lumberyard_continue::
       end
     elseif b.type == 'builder' and b.workers then
       for _, w in ipairs(b.workers) do
+        local centerX = b.tileX * TILE_SIZE + TILE_SIZE / 2
+        local centerY = b.tileY * TILE_SIZE + TILE_SIZE / 2
+        local dx, dy = (w.x - centerX), (w.y - centerY)
+        local insideBuilding = (dx * dx + dy * dy) <= (TILE_SIZE * 0.38) * (TILE_SIZE * 0.38)
+        if insideBuilding then
+          goto builder_draw_continue
+        end
         if w._onRoad then
           love.graphics.setColor(1, 1, 1, 0.15)
           love.graphics.rectangle('fill', w.x - 6, w.y + 7, 12, 2, 1, 1)
@@ -969,9 +1001,17 @@ function workers.draw(state)
         love.graphics.rectangle("fill", w.x - 5, w.y - 5, 10, 10, 2, 2)
         love.graphics.setColor(colors.outline)
         love.graphics.rectangle("line", w.x - 5, w.y - 5, 10, 10, 2, 2)
+        ::builder_draw_continue::
       end
     elseif b.type == 'farm' and b.workers then
       for _, w in ipairs(b.workers) do
+        local centerX = b.tileX * TILE_SIZE + TILE_SIZE / 2
+        local centerY = b.tileY * TILE_SIZE + TILE_SIZE / 2
+        local dx, dy = (w.x - centerX), (w.y - centerY)
+        local insideBuilding = (dx * dx + dy * dy) <= (TILE_SIZE * 0.38) * (TILE_SIZE * 0.38)
+        if insideBuilding then
+          goto farm_draw_continue
+        end
         if w._onRoad then
           love.graphics.setColor(1, 1, 1, 0.15)
           love.graphics.rectangle('fill', w.x - 6, w.y + 7, 12, 2, 1, 1)
@@ -997,6 +1037,7 @@ function workers.draw(state)
           love.graphics.line(w.x, w.y, w.x + math.cos(angle) * len, w.y + math.sin(angle) * len)
           love.graphics.setLineWidth(1)
         end
+        ::farm_draw_continue::
       end
     end
   end

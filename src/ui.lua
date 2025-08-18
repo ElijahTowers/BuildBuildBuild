@@ -265,6 +265,7 @@ function ui.drawBuildQueue(state)
   if not state.ui.isBuildQueueOpen then return end
   local screenW, screenH = love.graphics.getDimensions()
   local w, h = 560, 260
+  -- Always center the panel in the middle of the screen
   local x = (screenW - w) / 2
   local y = (screenH - h) / 2
   love.graphics.setColor(colors.uiPanel)
@@ -277,6 +278,8 @@ function ui.drawBuildQueue(state)
   local rowH = 34
   local btnW, btnH = 24, 20
   state.ui._queueButtons = {}
+  state.ui._queueHoverId = nil
+  state.ui._queueLayout = { headerY = headerY, rowH = rowH, x = x, y = y, w = w, h = h }
   local byId = {}
   for _, b in ipairs(state.game.buildings) do byId[b.id] = b end
   local qraw = state.game.buildQueue or {}
@@ -286,66 +289,108 @@ function ui.drawBuildQueue(state)
     return
   end
   -- draw in current queue order; top is highest priority
+  local drag = state.ui._queueDrag
+  local mx, my = love.mouse.getPosition()
+  local dropIndex = nil
   for i, q in ipairs(qraw) do
     local b = byId[q.id]
     if b then
       local ry = headerY + (i - 1) * rowH
       -- background per row
-      love.graphics.setColor(0, 0, 0, 0.2)
-      love.graphics.rectangle('fill', x + 8, ry, w - 16, rowH - 4, 6, 6)
-      love.graphics.setColor(colors.text)
-      -- icon
-      buildings.drawIcon(b.type, x + 18, ry + (rowH/2), 24, 0)
-      -- name + coords
+      local rowRect = { x = x + 8, y = ry, w = w - 16, h = rowH - 4 }
+      local hovered = utils.isPointInRect(mx, my, rowRect.x, rowRect.y, rowRect.w, rowRect.h)
+      if hovered then state.ui._queueHoverId = b.id end
+      local isDraggedRow = (drag and drag.id == b.id)
+      if not isDraggedRow then
+        love.graphics.setColor(0, 0, 0, hovered and 0.3 or 0.2)
+        love.graphics.rectangle('fill', rowRect.x, rowRect.y, rowRect.w, rowRect.h, 6, 6)
+        love.graphics.setColor(colors.text)
+        -- icon
+        buildings.drawIcon(b.type, x + 18, ry + (rowH/2), 24, 0)
+        -- name + coords
+        local status
+        if b.construction and b.construction.complete then status = 'Complete'
+        elseif b.construction and b.construction.waitingForResources then status = 'Waiting'
+        elseif b._claimedBy then status = 'Building…' else status = 'Ready' end
+        love.graphics.print(string.format('%s  (%d,%d)  [%s]', b.type, b.tileX, b.tileY, status), x + 44, ry + 8)
+        -- priority up/down
+        local upx = x + w - 200; local upy = ry + 6
+        local dnx = upx + btnW + 6; local dny = upy
+        love.graphics.setColor(colors.button)
+        love.graphics.rectangle('fill', upx, upy, btnW, btnH, 6, 6)
+        love.graphics.setColor(colors.uiPanelOutline)
+        love.graphics.rectangle('line', upx, upy, btnW, btnH, 6, 6)
+        love.graphics.setColor(colors.text)
+        love.graphics.printf('^', upx, upy + 2, btnW, 'center')
+        love.graphics.setColor(colors.button)
+        love.graphics.rectangle('fill', dnx, dny, btnW, btnH, 6, 6)
+        love.graphics.setColor(colors.uiPanelOutline)
+        love.graphics.rectangle('line', dnx, dny, btnW, btnH, 6, 6)
+        love.graphics.setColor(colors.text)
+        love.graphics.printf('v', dnx, dny + 2, btnW, 'center')
+        -- pause/resume
+        local px = x + w - 140; local py = upy
+        local label = (q.paused and 'Resume') or 'Pause'
+        local pw = 64
+        love.graphics.setColor(colors.button)
+        love.graphics.rectangle('fill', px, py, pw, btnH, 6, 6)
+        love.graphics.setColor(colors.uiPanelOutline)
+        love.graphics.rectangle('line', px, py, pw, btnH, 6, 6)
+        love.graphics.setColor(colors.text)
+        love.graphics.printf(label, px, py + 2, pw, 'center')
+        -- remove
+        local rx = x + w - 70; local ryb = upy
+        love.graphics.setColor(0.8, 0.3, 0.3, 1)
+        love.graphics.rectangle('fill', rx, ryb, 60, btnH, 6, 6)
+        love.graphics.setColor(colors.uiPanelOutline)
+        love.graphics.rectangle('line', rx, ryb, 60, btnH, 6, 6)
+        love.graphics.setColor(1,1,1,1)
+        love.graphics.printf('Remove', rx, ryb + 2, 60, 'center')
+
+        state.ui._queueButtons[#state.ui._queueButtons + 1] = {
+          id = b.id,
+          row = i,
+          up = { x = upx, y = upy, w = btnW, h = btnH },
+          down = { x = dnx, y = dny, w = btnW, h = btnH },
+          pause = { x = px, y = py, w = pw, h = btnH },
+          remove = { x = rx, y = ryb, w = 60, h = btnH },
+          rowRect = rowRect
+        }
+      end
+      -- compute tentative drop index while dragging
+      if drag then
+        local midY = ry + rowH / 2
+        if not dropIndex and my < midY then dropIndex = i end
+      end
+    end
+  end
+  if drag then
+    -- default drop at end
+    dropIndex = dropIndex or (#qraw + 1)
+    state.ui._queueDropIndex = dropIndex
+    -- insertion line
+    local idx = math.max(1, math.min(dropIndex, #qraw + 1))
+    local lineY
+    if idx == 1 then lineY = headerY - 2 else lineY = headerY + (idx - 1) * rowH - 4 end
+    love.graphics.setColor(1, 1, 0.5, 0.7)
+    love.graphics.rectangle('fill', x + 10, lineY, w - 20, 2)
+    -- draw floating row at mouse
+    local floatY = my - (drag.offsetY or 0)
+    love.graphics.setColor(0, 0, 0, 0.35)
+    love.graphics.rectangle('fill', x + 8, floatY, w - 16, rowH - 4, 6, 6)
+    love.graphics.setColor(colors.text)
+    local b = nil
+    for _, bb in ipairs(state.game.buildings) do if bb.id == drag.id then b = bb; break end end
+    if b then
+      buildings.drawIcon(b.type, x + 18, floatY + (rowH/2), 24, 0)
       local status
       if b.construction and b.construction.complete then status = 'Complete'
       elseif b.construction and b.construction.waitingForResources then status = 'Waiting'
       elseif b._claimedBy then status = 'Building…' else status = 'Ready' end
-      love.graphics.print(string.format('%s  (%d,%d)  [%s]', b.type, b.tileX, b.tileY, status), x + 44, ry + 8)
-      -- priority up/down
-      local upx = x + w - 200; local upy = ry + 6
-      local dnx = upx + btnW + 6; local dny = upy
-      love.graphics.setColor(colors.button)
-      love.graphics.rectangle('fill', upx, upy, btnW, btnH, 6, 6)
-      love.graphics.setColor(colors.uiPanelOutline)
-      love.graphics.rectangle('line', upx, upy, btnW, btnH, 6, 6)
-      love.graphics.setColor(colors.text)
-      love.graphics.printf('^', upx, upy + 2, btnW, 'center')
-      love.graphics.setColor(colors.button)
-      love.graphics.rectangle('fill', dnx, dny, btnW, btnH, 6, 6)
-      love.graphics.setColor(colors.uiPanelOutline)
-      love.graphics.rectangle('line', dnx, dny, btnW, btnH, 6, 6)
-      love.graphics.setColor(colors.text)
-      love.graphics.printf('v', dnx, dny + 2, btnW, 'center')
-      -- pause/resume
-      local px = x + w - 140; local py = upy
-      local label = (q.paused and 'Resume') or 'Pause'
-      local pw = 64
-      love.graphics.setColor(colors.button)
-      love.graphics.rectangle('fill', px, py, pw, btnH, 6, 6)
-      love.graphics.setColor(colors.uiPanelOutline)
-      love.graphics.rectangle('line', px, py, pw, btnH, 6, 6)
-      love.graphics.setColor(colors.text)
-      love.graphics.printf(label, px, py + 2, pw, 'center')
-      -- remove
-      local rx = x + w - 70; local ryb = upy
-      love.graphics.setColor(0.8, 0.3, 0.3, 1)
-      love.graphics.rectangle('fill', rx, ryb, 60, btnH, 6, 6)
-      love.graphics.setColor(colors.uiPanelOutline)
-      love.graphics.rectangle('line', rx, ryb, 60, btnH, 6, 6)
-      love.graphics.setColor(1,1,1,1)
-      love.graphics.printf('Remove', rx, ryb + 2, 60, 'center')
-
-      state.ui._queueButtons[#state.ui._queueButtons + 1] = {
-        id = b.id,
-        row = i,
-        up = { x = upx, y = upy, w = btnW, h = btnH },
-        down = { x = dnx, y = dny, w = btnW, h = btnH },
-        pause = { x = px, y = py, w = pw, h = btnH },
-        remove = { x = rx, y = ryb, w = 60, h = btnH },
-        rowRect = { x = x + 8, y = ry, w = w - 16, h = rowH - 4 }
-      }
+      love.graphics.print(string.format('%s  (%d,%d)  [%s]', b.type, b.tileX, b.tileY, status), x + 44, floatY + 8)
     end
+  else
+    state.ui._queueDropIndex = nil
   end
 end
 -- Minimap (top-right). Shows roads, trees, buildings, and camera viewport.

@@ -352,6 +352,8 @@ end
 
 function buildings.drawAll(state)
   local TILE_SIZE = constants.TILE_SIZE
+  -- clear tooltip each frame (will be set when hovering indicators)
+  state.ui._noWorkTooltip = nil
   for _, b in ipairs(state.game.buildings) do
     local px = b.tileX * TILE_SIZE
     local py = b.tileY * TILE_SIZE
@@ -366,15 +368,34 @@ function buildings.drawAll(state)
     local breath = 1 + 0.02 * math.sin(t * 3.0)
     local scale = (0.9 + 0.1 * appear) * breath
 
+    -- flash decay
+    if b._flashT and b._flashT > 0 then b._flashT = math.max(0, b._flashT - (state and state.time and 1/60 or 0.016)) end
     love.graphics.push()
     love.graphics.translate(cx, cy)
     love.graphics.scale(scale, scale)
 
     drawTileBase(TILE_SIZE, b.color)
 
+    -- Priority glow if this building is top of queue
+    do
+      local q = state.game.buildQueue or {}
+      if #q > 0 and q[1] and q[1].id == b.id then
+        local glowT = (b.anim and b.anim.t or 0)
+        local alpha = 0.25 + 0.15 * (0.5 + 0.5 * math.sin(glowT * 3.5))
+        love.graphics.setColor(1, 0.9, 0.3, alpha)
+        love.graphics.rectangle('line', -TILE_SIZE/2 - 3, -TILE_SIZE/2 - 3, TILE_SIZE + 6, TILE_SIZE + 6, 8, 8)
+        love.graphics.setColor(1, 1, 1, 1)
+      end
+    end
+
     -- draw icon if available
     local innerPad = 0
     drawBuildingIcon(b.type, TILE_SIZE, innerPad)
+    if b._flashT and b._flashT > 0 then
+      love.graphics.setColor(1, 1, 0.6, 0.35 * (b._flashT / 0.5))
+      love.graphics.rectangle('line', -TILE_SIZE/2 - 2, -TILE_SIZE/2 - 2, TILE_SIZE + 4, TILE_SIZE + 4, 8, 8)
+      love.graphics.setColor(1, 1, 1, 1)
+    end
 
     -- Construction progress bar
     if b.construction and not b.construction.complete then
@@ -422,6 +443,19 @@ function buildings.drawAll(state)
       love.graphics.setLineWidth(1)
       love.graphics.line(0, 9, -anchorX * 0.2, TILE_SIZE * 0.18)
       love.graphics.pop()
+      -- hover detection for tooltip (mouse in world space vs indicator world position)
+      do
+        local mx, my = love.mouse.getPosition()
+        local worldX = state.camera.x + mx / (state.camera.scale or 1)
+        local worldY = state.camera.y + my / (state.camera.scale or 1)
+        local indWorldX = cx + anchorX * scale
+        local indWorldY = cy + (anchorY + bob) * scale
+        local dx, dy = worldX - indWorldX, worldY - indWorldY
+        local r = 12 * scale
+        if dx * dx + dy * dy <= r * r then
+          state.ui._noWorkTooltip = { text = b._noWorkReason, sx = mx + 14, sy = my + 16 }
+        end
+      end
     end
 
     -- Farm crops around
@@ -451,6 +485,23 @@ function buildings.drawAll(state)
       end
       love.graphics.setColor(colors.outline)
       love.graphics.rectangle('line', cx - aw/2, cy - TILE_SIZE * 0.4, aw, 10, 4, 4)
+    end
+
+    -- Floating selection label above the selected building (helps clicking on map)
+    if state.ui.selectedBuilding == b then
+      local label = string.format('%s  (%d,%d)', b.type, b.tileX, b.tileY)
+      local fw = love.graphics.getFont():getWidth(label)
+      local pad = 6
+      local bw = fw + pad * 2
+      local bh = 18
+      local ox = 0
+      local oy = -TILE_SIZE * 0.72
+      love.graphics.setColor(0, 0, 0, 0.55)
+      love.graphics.rectangle('fill', ox - bw/2, oy - bh/2, bw, bh, 6, 6)
+      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.rectangle('line', ox - bw/2, oy - bh/2, bw, bh, 6, 6)
+      love.graphics.setColor(colors.text)
+      love.graphics.print(label, ox - bw/2 + pad, oy - bh/2 + 2)
     end
 
     love.graphics.pop()

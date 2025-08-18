@@ -496,6 +496,21 @@ function love.draw()
     ui.drawSelectedPanel(state)
   end
 
+  -- Tooltip for no-work indicator
+  do
+    local tip = state.ui._noWorkTooltip
+    if tip and tip.text then
+      local tw = love.graphics.getFont():getWidth(tip.text) + 12
+      local th = 22
+      love.graphics.setColor(0, 0, 0, 0.75)
+      love.graphics.rectangle('fill', tip.sx, tip.sy, tw, th, 6, 6)
+      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.rectangle('line', tip.sx, tip.sy, tw, th, 6, 6)
+      love.graphics.setColor(colors.text)
+      love.graphics.print(tip.text, tip.sx + 6, tip.sy + 4)
+    end
+  end
+
   if not state.ui.isPaused and not state.ui.isBuildMenuOpen then
     love.graphics.setColor(colors.text)
     local hintY = love.graphics.getHeight() - 24
@@ -671,6 +686,16 @@ function love.mousepressed(x, y, button)
 
   -- Build Queue row interactions when panel open (independent of selection)
   if state.ui.isBuildQueueOpen and state.ui._queueButtons then
+    -- drag start
+    if button == 1 and not state.ui._queueDrag then
+      for _, row in ipairs(state.ui._queueButtons) do
+        local rr = row.rowRect
+        if rr and x >= rr.x and x <= rr.x + rr.w and y >= rr.y and y <= rr.y + rr.h then
+          state.ui._queueDrag = { id = row.id, startY = y, offsetY = (y - rr.y) }
+          break
+        end
+      end
+    end
     for _, row in ipairs(state.ui._queueButtons) do
       local up, down, pause, remove, rr = row.up, row.down, row.pause, row.remove, row.rowRect
       -- handle buttons first (so rowRect doesn't swallow clicks)
@@ -721,8 +746,25 @@ function love.mousepressed(x, y, button)
           local screenW, screenH = love.graphics.getDimensions()
           local worldX = target.tileX * TILE + TILE / 2
           local worldY = target.tileY * TILE + TILE / 2
-          state.camera.x = utils.clamp(worldX - (screenW / state.camera.scale) / 2, 0, state.world.tilesX * TILE - (screenW / state.camera.scale))
-          state.camera.y = utils.clamp(worldY - (screenH / state.camera.scale) / 2, 0, state.world.tilesY * TILE - (screenH / state.camera.scale))
+          -- If queue panel is open, center the panel and align the building above it
+          local targetScreenX = screenW / 2
+          local targetScreenY = screenH / 2
+          if state.ui.isBuildQueueOpen and state.ui._queueLayout then
+            local qy = state.ui._queueLayout.y or (screenH/2 - 130)
+            -- place building slightly above the top of the centered panel
+            targetScreenY = math.max(40, qy - 40)
+          end
+          local sc = (state.camera.scale or 1)
+          local newCamX = worldX - targetScreenX / sc
+          local newCamY = worldY - targetScreenY / sc
+          local maxCamX = math.max(0, state.world.tilesX * TILE - screenW / sc)
+          local maxCamY = math.max(0, state.world.tilesY * TILE - screenH / sc)
+          state.camera.x = utils.clamp(newCamX, 0, maxCamX)
+          state.camera.y = utils.clamp(newCamY, 0, maxCamY)
+          -- flash the building briefly
+          target._flashT = 0.5
+          -- set selection so the floating label appears above it
+          state.ui.selectedBuilding = target
           return
         end
       end
@@ -1045,3 +1087,23 @@ function love.wheelmoved(dx, dy)
   state.camera.x = utils.clamp(state.camera.x, 0, maxCamX)
   state.camera.y = utils.clamp(state.camera.y, 0, maxCamY)
 end 
+
+function love.mousereleased(x, y, button)
+  if state.ui.isBuildQueueOpen and state.ui._queueDrag then
+    local drag = state.ui._queueDrag
+    local dropIndex = state.ui._queueDropIndex
+    state.ui._queueDrag = nil
+    state.ui._queueDropIndex = nil
+    if dropIndex and drag and drag.id and state.game.buildQueue then
+      local q = state.game.buildQueue
+      local cur
+      for i=1,#q do if q[i].id == drag.id then cur = i; break end end
+      if cur then
+        local item = table.remove(q, cur)
+        if cur < dropIndex then dropIndex = math.max(1, dropIndex - 1) end
+        table.insert(q, math.max(1, math.min(dropIndex, #q + 1)), item)
+      end
+    end
+    return
+  end
+end
