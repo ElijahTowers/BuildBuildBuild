@@ -225,6 +225,28 @@ function love.update(dt)
     end
   end
 
+  -- Clear stale food-shortage prompt if conditions are now OK (e.g., after deliveries)
+  do
+    local popNow = state.game.population.total or 0
+    local marketsFoodNow, marketsCount = 0, 0
+    for _, b in ipairs(state.game.buildings) do
+      if b.type == 'market' then
+        marketsCount = marketsCount + 1
+        if b.storage and b.storage.food then marketsFoodNow = marketsFoodNow + b.storage.food end
+      end
+    end
+    if marketsCount > 0 and marketsFoodNow >= popNow then
+      if state.ui.prompts then
+        local newList = {}
+        for _, p in ipairs(state.ui.prompts) do
+          if p.tag ~= 'market_food' then table.insert(newList, p) end
+        end
+        state.ui.prompts = newList
+      end
+      state.game.starving = false
+    end
+  end
+
   -- Time of day (apply time speed)
   local sdt = dt * (state.time.speed or 1)
   if not isInitial then
@@ -291,6 +313,17 @@ function love.update(dt)
           end
         else
           removePrompt('market_food')
+        end
+        -- Safety: immediately clear the prompt if at any time after mealtime stock becomes sufficient
+        if state.ui.prompts and state.time.mealConsumedToday then
+          local totalMarketFood = 0
+          for _, m in ipairs(state.game.buildings) do
+            if m.type == 'market' and m.storage and m.storage.food then totalMarketFood = totalMarketFood + m.storage.food end
+          end
+          if totalMarketFood >= (state.game.population.total or 0) then
+            removePrompt('market_food')
+            state.game.starving = false
+          end
         end
       end
     end
