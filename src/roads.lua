@@ -68,6 +68,14 @@ function roads.update(state, dt)
   end
 end
 
+-- Check if a building occupies a tile
+local function hasBuilding(state, x, y)
+  for _, b in ipairs(state.game.buildings or {}) do
+    if b.tileX == x and b.tileY == y then return true end
+  end
+  return false
+end
+
 -- Bounds and collisions (no buildings or trees on tile)
 function roads.canPlaceAt(state, x, y)
   if x < 0 or y < 0 or x >= state.world.tilesX or y >= state.world.tilesY then return false end
@@ -104,7 +112,67 @@ end
 function roads.computePath(state, startX, startY, endX, endY)
   if not startX or not startY or not endX or not endY then return {} end
   if startX == endX and startY == endY then return {} end
-  return manhattanPath(startX, startY, endX, endY)
+  -- Snap endpoints to nearest placeable tiles to allow connecting to buildings
+  local function snapToPlaceable(x, y)
+    if roads.canPlaceAt(state, x, y) then return x, y end
+    -- Try 4-neighbors; choose first placeable
+    local dirs = { {1,0}, {-1,0}, {0,1}, {0,-1} }
+    for i = 1, #dirs do
+      local nx, ny = x + dirs[i][1], y + dirs[i][2]
+      if roads.canPlaceAt(state, nx, ny) then return nx, ny end
+    end
+    return x, y
+  end
+  local originalStartBlocked = not roads.canPlaceAt(state, startX, startY)
+  local sx, sy = snapToPlaceable(startX, startY)
+  local ex, ey = snapToPlaceable(endX, endY)
+  -- Build two candidate L paths and pick one that doesn't cross blocked tiles (e.g., buildings)
+  local function pathIsClear(path)
+    for i = 1, #path do
+      local p = path[i]
+      if roads.hasRoad(state, p.x, p.y) then
+        -- allow existing roads as passable
+      elseif not roads.canPlaceAt(state, p.x, p.y) then
+        return false
+      end
+    end
+    return true
+  end
+  -- Horizontal then vertical
+  local hFirst = manhattanPath(sx, sy, ex, ey)
+  if pathIsClear(hFirst) then
+    if originalStartBlocked and roads.canPlaceAt(state, sx, sy) and not roads.hasRoad(state, sx, sy) then
+      table.insert(hFirst, 1, { x = sx, y = sy })
+    end
+    return hFirst
+  end
+  -- Vertical then horizontal: swap axes by generating via intermediary
+  local via = { x = sx, y = ey }
+  local vFirst = {}
+  do
+    local x, y = sx, sy
+    local dy = (ey > y) and 1 or -1
+    while y ~= ey do
+      y = y + dy
+      table.insert(vFirst, { x = x, y = y })
+    end
+    local dx = (ex > x) and 1 or -1
+    while x ~= ex do
+      x = x + dx
+      table.insert(vFirst, { x = x, y = y })
+    end
+  end
+  if pathIsClear(vFirst) then
+    if originalStartBlocked and roads.canPlaceAt(state, sx, sy) and not roads.hasRoad(state, sx, sy) then
+      table.insert(vFirst, 1, { x = sx, y = sy })
+    end
+    return vFirst
+  end
+  -- fallback: return hFirst with start inclusion if needed
+  if originalStartBlocked and roads.canPlaceAt(state, sx, sy) and not roads.hasRoad(state, sx, sy) then
+    table.insert(hFirst, 1, { x = sx, y = sy })
+  end
+  return hFirst
 end
 
 -- Count placeable tiles and affordability
@@ -169,16 +237,16 @@ function roads.draw(state)
 
     -- connections (very subtle extensions)
     love.graphics.setColor(0.16, 0.16, 0.18, 0.7)
-    if has(state, x, y - 1) then
+    if has(state, x, y - 1) or hasBuilding(state, x, y - 1) then
       love.graphics.rectangle('fill', px + 6, py + 2, TILE - 12, TILE / 2 - 3)
     end
-    if has(state, x + 1, y) then
+    if has(state, x + 1, y) or hasBuilding(state, x + 1, y) then
       love.graphics.rectangle('fill', cx + 2, py + 6, TILE / 2 - 4, TILE - 12)
     end
-    if has(state, x, y + 1) then
+    if has(state, x, y + 1) or hasBuilding(state, x, y + 1) then
       love.graphics.rectangle('fill', px + 6, cy + 2, TILE - 12, TILE / 2 - 4)
     end
-    if has(state, x - 1, y) then
+    if has(state, x - 1, y) or hasBuilding(state, x - 1, y) then
       love.graphics.rectangle('fill', px + 2, py + 6, TILE / 2 - 3, TILE - 12)
     end
 

@@ -471,7 +471,23 @@ function love.draw()
     local sx, sy = state.ui.roadStartTile.x, state.ui.roadStartTile.y
     local ex, ey = getMouseTile()
     local path = roads.computePath(state, sx, sy, ex, ey)
+    -- Include the start tile so preview shows the first placed cell too
+    if roads.canPlaceAt(state, sx, sy) and not roads.hasRoad(state, sx, sy) then
+      table.insert(path, 1, { x = sx, y = sy })
+    end
     roads.drawPreview(state, path)
+  elseif state.ui.isPlacingRoad and not state.ui.roadStartTile then
+    -- show single-tile hover preview to indicate road mode
+    local tx, ty = getMouseTile()
+    local TILE = TILE_SIZE
+    if roads.canPlaceAt(state, tx, ty) and not roads.hasRoad(state, tx, ty) then
+      love.graphics.setColor(colors.preview)
+    else
+      love.graphics.setColor(colors.invalid)
+    end
+    love.graphics.rectangle('fill', tx * TILE, ty * TILE, TILE, TILE, 4, 4)
+    love.graphics.setColor(colors.outline)
+    love.graphics.rectangle('line', tx * TILE, ty * TILE, TILE, TILE, 4, 4)
   end
 
   drawPlacementPreview()
@@ -920,11 +936,36 @@ function love.mousepressed(x, y, button)
   if state.ui.isPlacingRoad then
     local tx, ty = screenToTile(x, y)
     if not state.ui.roadStartTile then
-      state.ui.roadStartTile = { x = tx, y = ty }
+      -- Snap start to a placeable neighbor if clicked on a blocked tile (e.g., a building)
+      if not roads.canPlaceAt(state, tx, ty) then
+        local dirs = { {1,0}, {-1,0}, {0,1}, {0,-1} }
+        local snappedX, snappedY = tx, ty
+        -- Prefer neighbor that leads toward mouse direction if possible
+        local mx, my = getMouseTile()
+        local prefer = { 0, 0 }
+        prefer[1] = (mx > tx) and 1 or ((mx < tx) and -1 or 0)
+        prefer[2] = (my > ty) and 1 or ((my < ty) and -1 or 0)
+        -- Try preferred axis first
+        local try = {}
+        if prefer[1] ~= 0 then table.insert(try, { prefer[1], 0 }) end
+        if prefer[2] ~= 0 then table.insert(try, { 0, prefer[2] }) end
+        for i=1,#dirs do table.insert(try, dirs[i]) end
+        for i=1,#try do
+          local nx, ny = tx + try[i][1], ty + try[i][2]
+          if roads.canPlaceAt(state, nx, ny) then snappedX, snappedY = nx, ny; break end
+        end
+        state.ui.roadStartTile = { x = snappedX, y = snappedY }
+      else
+        state.ui.roadStartTile = { x = tx, y = ty }
+      end
       return
     else
       local sx, sy = state.ui.roadStartTile.x, state.ui.roadStartTile.y
       local path = roads.computePath(state, sx, sy, tx, ty)
+      -- Include start tile so the road begins at the snapped starting cell
+      if roads.canPlaceAt(state, sx, sy) and not roads.hasRoad(state, sx, sy) then
+        table.insert(path, 1, { x = sx, y = sy })
+      end
       roads.placePath(state, path)
       state.ui.roadStartTile = { x = tx, y = ty }
       return
