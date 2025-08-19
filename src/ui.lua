@@ -561,11 +561,7 @@ function ui.drawHUD(state)
     end
   end
 
-  if state.ui.isPlacingRoad then
-    love.graphics.setColor(colors.text)
-    local costPer = state.buildingDefs.road.costPerTile.wood or 0
-    love.graphics.print(string.format("Road: click-drag to build, cost %d wood/tile. Right click to cancel.", costPer), x + 12, y + 30)
-  end
+  -- (removed) road instructions are now shown as a prompt when road mode is toggled
 
   -- demolish hint
   if state.ui.isDemolishMode then

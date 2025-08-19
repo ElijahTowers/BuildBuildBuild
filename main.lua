@@ -564,7 +564,11 @@ function love.draw()
   if not state.ui.isPaused and not state.ui.isBuildMenuOpen then
     love.graphics.setColor(colors.text)
     local hintY = love.graphics.getHeight() - 24
-    love.graphics.print("Click 'Build' -> choose 'House' or 'Lumberyard' -> place on the map. Move mouse to screen edges to pan. Right click to cancel placement.", 16, hintY)
+    local hint = "Click 'Build' -> choose 'House' or 'Lumberyard' -> place on the map. Move mouse to screen edges to pan. Right click to cancel placement."
+    -- Suppress base hint during road mode; show as prompt instead
+    if not state.ui.isPlacingRoad then
+      love.graphics.print(hint, 16, hintY)
+    end
   end
 
   -- Do not show pause menu if Food Panel is open (even if paused)
@@ -1097,6 +1101,22 @@ function love.keypressed(key)
     state.ui.isPlacingRoad = not state.ui.isPlacingRoad
     state.ui.isPlacingBuilding = false
     state.ui.selectedBuildingType = nil
+    -- Show instructions as a prompt when road mode is activated
+    if state.ui.isPlacingRoad then
+      state.ui.prompts = state.ui.prompts or {}
+      local tag = 'road_hint'
+      local text = "Roads: Click to set start, click again to extend. Drag along tiles. Starts/ends snap next to buildings. Press R to exit."
+      local found = false
+      for _, p in ipairs(state.ui.prompts) do if p.tag == tag then p.text = text; p.t = 0; p.duration = 6; p.useRealTime = true; found = true; break end end
+      if not found then table.insert(state.ui.prompts, { tag = tag, text = text, t = 0, duration = 6, useRealTime = true }) end
+    else
+      -- Remove the hint when exiting road mode
+      if state.ui.prompts then
+        local newList = {}
+        for _, p in ipairs(state.ui.prompts) do if p.tag ~= 'road_hint' then table.insert(newList, p) end end
+        state.ui.prompts = newList
+      end
+    end
   elseif key == 'v' then
     state.ui.isVillagersPanelOpen = not state.ui.isVillagersPanelOpen
   elseif key == 'q' then
