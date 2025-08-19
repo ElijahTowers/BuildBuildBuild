@@ -11,7 +11,14 @@ local ui = {}
 ui.buildButton = { x = 16, y = 16, width = 120, height = 40, label = "Build" }
 ui.roadButton = { x = 16 + 120 + 8, y = 16, width = 120, height = 40, label = "Roads" }
 ui.villagersButton = { x = 16 + (120 + 8) * 2, y = 16, width = 140, height = 40, label = "Villagers" }
-ui.queueButton = { x = 16 + (120 + 8) * 2 + 140 + 8, y = 16, width = 140, height = 40, label = "Build Queue" }
+-- Move queue button under the build button
+ui.queueButton = {
+  x = ui.buildButton.x,
+  y = ui.buildButton.y + ui.buildButton.height + 8,
+  width = ui.buildButton.width,
+  height = ui.buildButton.height,
+  label = "Build Queue"
+}
 
 
 ui.buildMenu = {
