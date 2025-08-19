@@ -504,7 +504,11 @@ function ui.drawHUD(state)
     end
   end
   local totalFood = baseFood + storedFood
-  love.graphics.print(string.format("Food: %d", totalFood), x + 12, y + 32)
+  local foodLabel = string.format("Food: %d", totalFood)
+  love.graphics.print(foodLabel, x + 12, y + 32)
+  -- clickable bounds for food
+  local fw = love.graphics.getFont():getWidth(foodLabel)
+  state.ui._foodButton = { x = x + 10, y = y + 30, w = fw + 6, h = 18 }
 
   local hours = math.floor(state.time.normalized * 24) % 24
   local minutes = math.floor((state.time.normalized * 24 - hours) * 60)
@@ -563,6 +567,102 @@ function ui.drawHUD(state)
   end
 
   ui.drawVillagersPanel(state)
+end
+
+function ui.drawFoodPanel(state)
+  if not state.ui.isFoodPanelOpen then return end
+  local screenW, screenH = love.graphics.getDimensions()
+  love.graphics.setColor(0, 0, 0, 0.45)
+  love.graphics.rectangle('fill', 0, 0, screenW, screenH)
+
+  local panelW = 520
+  local panelH = 360
+  local px = (screenW - panelW) / 2
+  local py = (screenH - panelH) / 2
+
+  love.graphics.setColor(colors.uiPanel)
+  love.graphics.rectangle('fill', px, py, panelW, panelH, 10, 10)
+  love.graphics.setColor(colors.uiPanelOutline)
+  love.graphics.rectangle('line', px, py, panelW, panelH, 10, 10)
+
+  local ox = px + 18
+  local oy = py + 16
+  love.graphics.setColor(colors.text)
+  love.graphics.printf('Food Overview', px, oy, panelW, 'center')
+  oy = oy + 28
+
+  -- Aggregates
+  local baseFood = math.floor((state.game.resources.food or 0) + 0.5)
+  local marketsFood, builderFood = 0, 0
+  local capacity = 0
+  local coveredHouses, totalHouses = 0, 0
+  for _, b in ipairs(state.game.buildings) do
+    if b.type == 'market' then
+      if b.storage and b.storage.food then marketsFood = marketsFood + b.storage.food end
+      capacity = capacity + 50 -- nominal per market
+    elseif b.type == 'builder' then
+      if b.storage and b.storage.food then builderFood = builderFood + b.storage.food end
+    elseif b.type == 'house' and b.construction and b.construction.complete then
+      totalHouses = totalHouses + 1
+      -- coverage check
+      local inRadius = false
+      for _, m in ipairs(state.game.buildings) do
+        if m.type == 'market' then
+          local dx = m.tileX - b.tileX
+          local dy = m.tileY - b.tileY
+          local r = (state.buildingDefs.market.radiusTiles or 0)
+          if dx*dx + dy*dy <= r*r then inRadius = true; break end
+        end
+      end
+      if inRadius then coveredHouses = coveredHouses + 1 end
+    end
+  end
+  local totalFood = baseFood + marketsFood + builderFood
+  local pop = state.game.population.total or 0
+  local tonightDemand = pop
+  local deficit = math.max(0, tonightDemand - (marketsFood))
+
+  -- Text blocks
+  love.graphics.print(string.format('Total Food: %d', totalFood), ox, oy)
+  oy = oy + 20
+  love.graphics.print(string.format("In Markets: %d", marketsFood), ox, oy)
+  oy = oy + 20
+  love.graphics.print(string.format("Other Storage: %d", baseFood + builderFood), ox, oy)
+  oy = oy + 20
+  love.graphics.print(string.format("Tonight's Demand: %d", tonightDemand), ox, oy)
+  oy = oy + 20
+  local txt = string.format('Deficit: %d', deficit)
+  if deficit > 0 then love.graphics.setColor(0.9, 0.2, 0.2, 1) else love.graphics.setColor(0.2, 0.9, 0.3, 1) end
+  love.graphics.print(txt, ox, oy)
+  love.graphics.setColor(colors.text)
+  oy = oy + 28
+  love.graphics.print(string.format('Coverage: %d houses covered / %d total', coveredHouses, totalHouses), ox, oy)
+  oy = oy + 24
+
+  -- Markets table
+  love.graphics.print('Markets:', ox, oy)
+  oy = oy + 18
+  local colX = { ox, ox + 220, ox + 360 }
+  love.graphics.print('Location', colX[1], oy)
+  love.graphics.print('Stock',    colX[2], oy)
+  love.graphics.print('Radius',   colX[3], oy)
+  oy = oy + 14
+  love.graphics.setColor(1,1,1,0.15)
+  love.graphics.rectangle('fill', ox, oy, panelW - 36, 1)
+  love.graphics.setColor(colors.text)
+  oy = oy + 8
+  for _, m in ipairs(state.game.buildings) do
+    if m.type == 'market' then
+      love.graphics.print(string.format('(%d,%d)', m.tileX, m.tileY), colX[1], oy)
+      love.graphics.print(string.format('%d', (m.storage and m.storage.food) or 0), colX[2], oy)
+      love.graphics.print(string.format('%d', (state.buildingDefs.market.radiusTiles or 0)), colX[3], oy)
+      oy = oy + 16
+    end
+  end
+
+  -- Close hint
+  love.graphics.setColor(1,1,1,0.6)
+  love.graphics.printf("Press F or click outside to close", px, py + panelH - 26, panelW, 'center')
 end
 
 function ui.drawMissionPanel(state)
@@ -665,6 +765,8 @@ end
 
 function ui.drawPauseMenu(state)
   if not state.ui.isPaused then return end
+  -- Do not show pause menu while Food Panel is open
+  if state.ui.isFoodPanelOpen then return end
   local screenW, screenH = love.graphics.getDimensions()
   love.graphics.setColor(0, 0, 0, 0.45)
   love.graphics.rectangle("fill", 0, 0, screenW, screenH)

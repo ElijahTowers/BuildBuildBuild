@@ -85,10 +85,10 @@ local function drawPlacementPreview()
   local isValid = buildings.canPlaceAt(state, tileX, tileY)
     and not isOverUI(love.mouse.getX(), love.mouse.getY())
 
-  -- Show lumberyard radius while previewing
-  if state.ui.selectedBuildingType == 'lumberyard' then
-    local def = state.buildingDefs.lumberyard
-    local radiusPx = def.radiusTiles * TILE_SIZE
+  -- Show lumberyard/market radius while previewing
+  if state.ui.selectedBuildingType == 'lumberyard' or state.ui.selectedBuildingType == 'market' then
+    local def = state.buildingDefs[state.ui.selectedBuildingType]
+    local radiusPx = (def.radiusTiles or 0) * TILE_SIZE
     local cx = px + TILE_SIZE / 2
     local cy = py + TILE_SIZE / 2
     love.graphics.setColor(colors.radius)
@@ -188,7 +188,7 @@ function love.load()
 end
 
 function love.update(dt)
-  if state.ui.isPaused or state.ui.isBuildMenuOpen or state.ui.isVillagersPanelOpen or state.ui.isBuildQueueOpen then return end
+  if state.ui.isPaused or state.ui.isBuildMenuOpen or state.ui.isVillagersPanelOpen or state.ui.isBuildQueueOpen or state.ui.isFoodPanelOpen then return end
   local isInitial = state.ui._pauseTimeForInitial
 
   -- Auto speed by day/night
@@ -486,6 +486,7 @@ function love.draw()
   ui.drawTopButtons(state)
   ui.drawBuildMenu(state, state.buildingDefs)
   ui.drawHUD(state)
+  ui.drawFoodPanel(state)
   ui.drawBuildQueue(state)
   ui.drawMiniMap(state)
   ui.drawMissionPanel(state)
@@ -517,7 +518,10 @@ function love.draw()
     love.graphics.print("Click 'Build' -> choose 'House' or 'Lumberyard' -> place on the map. Move mouse to screen edges to pan. Right click to cancel placement.", 16, hintY)
   end
 
-  ui.drawPauseMenu(state)
+  -- Do not show pause menu if Food Panel is open (even if paused)
+  if not state.ui.isFoodPanelOpen then
+    ui.drawPauseMenu(state)
+  end
 end
 
 local function hitTestBuildingAt(state, tileX, tileY)
@@ -891,6 +895,16 @@ function love.mousepressed(x, y, button)
     end
   end
 
+  -- Food HUD click
+  if state.ui._foodButton then
+    local fb = state.ui._foodButton
+    if x >= fb.x and x <= fb.x + fb.w and y >= fb.y and y <= fb.y + fb.h then
+      state.ui.isFoodPanelOpen = true
+      state.ui.isPaused = true
+      return
+    end
+  end
+
   -- Minimap click-to-navigate
   local mm = state.ui._miniMap
   if mm and x >= mm.x and x <= mm.x + mm.w and y >= mm.y and y <= mm.y + mm.h then
@@ -982,6 +996,9 @@ function love.keypressed(key)
   if key == 'escape' then
     if state.ui.isBuildMenuOpen then
       state.ui.isBuildMenuOpen = false
+    elseif state.ui.isFoodPanelOpen then
+      state.ui.isFoodPanelOpen = false
+      state.ui.isPaused = false
     else
       if state.ui.isPlacingBuilding then
         state.ui.isPlacingBuilding = false
@@ -999,6 +1016,9 @@ function love.keypressed(key)
       state.ui.isPlacingBuilding = false
       state.ui.selectedBuildingType = nil
     end
+  elseif key == 'f' then
+    state.ui.isFoodPanelOpen = not state.ui.isFoodPanelOpen
+    return
   elseif key == 'r' then
     state.ui.isPlacingRoad = not state.ui.isPlacingRoad
     state.ui.isPlacingBuilding = false

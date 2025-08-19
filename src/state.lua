@@ -32,8 +32,10 @@ state.ui = {
   roadStartTile = nil,
   isVillagersPanelOpen = false,
   isBuildQueueOpen = false,
+  isFoodPanelOpen = false,
   _villagersPanelButtons = nil, -- temp bounds for assign/unassign in panel
   _speedButtons = nil,
+  _foodButton = nil,
   _miniMap = nil,
   showMinimap = true,
   forceGrid = false,
@@ -96,7 +98,8 @@ state.buildingDefs = {
   },
   market = {
     cost = { wood = 15 },
-    buildRequired = 10
+    buildRequired = 10,
+    radiusTiles = 16
   },
   builder = {
     cost = { wood = 25 },

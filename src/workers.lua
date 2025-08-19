@@ -14,7 +14,7 @@ local workers = {}
 local function countWarehouses(state)
   local c = 0
   for _, b in ipairs(state.game.buildings) do
-    if b.type == 'warehouse' then c = c + 1 end
+    if b.type == 'warehouse' and b.construction and b.construction.complete then c = c + 1 end
   end
   return c
 end
@@ -62,7 +62,7 @@ local function computeWoodTotals(state)
   local base = state.game.resources.wood or 0
   local stored = 0
   for _, b in ipairs(state.game.buildings) do
-    if b.type == 'warehouse' and b.storage and b.storage.wood then
+    if b.type == 'warehouse' and b.construction and b.construction.complete and b.storage and b.storage.wood then
       stored = stored + b.storage.wood
     end
   end
@@ -123,7 +123,7 @@ local function findNearestWarehouse(state, x, y)
   local best, bestDistSq
   bestDistSq = math.huge
   for _, b in ipairs(state.game.buildings) do
-    if b.type == 'warehouse' then
+    if b.type == 'warehouse' and b.construction and b.construction.complete then
       local d = (b.tileX - x) ^ 2 + (b.tileY - y) ^ 2
       if d < bestDistSq then
         bestDistSq = d
@@ -468,6 +468,70 @@ local function drawVillagers(state)
   end
 end
 
+-- Visual residents (non-workers) that commute to markets at dusk
+local function ensureResidents(state)
+  state.game.residents = state.game.residents or {}
+  -- build a map of homeId to count
+  local residences = {}
+  local function ensureForBuilding(b, count)
+    if count <= 0 then return end
+    b._residents = b._residents or {}
+    while #b._residents < count do
+      local TILE = constants.TILE_SIZE
+      local x = b.tileX * TILE + TILE / 2
+      local y = b.tileY * TILE + TILE / 2
+      local r = { x = x, y = y, state = 'home', home = b, _ateToday = false }
+      table.insert(b._residents, r)
+      table.insert(state.game.residents, r)
+    end
+    -- do not shrink dynamically to avoid culling visuals
+  end
+  for _, b in ipairs(state.game.buildings) do
+    if b.construction and b.construction.complete then
+      if b.type == 'house' then
+        local cap = (state.buildingDefs.house.residents or 0)
+        ensureForBuilding(b, cap)
+      elseif b.type == 'builder' then
+        local cap = (state.buildingDefs.builder.residents or 0)
+        ensureForBuilding(b, cap)
+      end
+    end
+  end
+end
+
+local function updateResidents(state, dt)
+  ensureResidents(state)
+  local TILE = constants.TILE_SIZE
+  local isDay = (state.time.normalized >= 0.25 and state.time.normalized < 0.75)
+  local mealtime = state.time.mealtimeActive
+  if not state.game.residents then return end
+  for _, r in ipairs(state.game.residents) do
+    -- reset after night
+    if isDay and not mealtime and r._ateToday then
+      r._ateToday = false
+      r.state = 'home'
+    end
+    if mealtime and not r._ateToday then
+      local m = findNearestMarket(state, math.floor(r.x / TILE), math.floor(r.y / TILE))
+      if m then
+        local mx = m.tileX * TILE + TILE / 2
+        local my = m.tileY * TILE + TILE / 2
+        if goTo(r, mx, my, 110, dt, state) then
+          r._ateToday = true
+        end
+      end
+    else
+      -- go/stay at home during day/night if not mealtime
+      local home = r.home
+      if home then
+        local hx = home.tileX * TILE + TILE / 2
+        local hy = home.tileY * TILE + TILE / 2
+        goTo(r, hx, hy, 110, dt, state)
+      end
+    end
+  end
+end
+
 local function takeDemolitionJob(state)
   local jobs = state.game.jobs and state.game.jobs.demolitions or nil
   if not jobs or #jobs == 0 then return nil end
@@ -482,6 +546,7 @@ end
 function workers.update(state, dt)
   local isDay = (state.time.normalized >= 0.25 and state.time.normalized < 0.75)
   updateVillagers(state, dt)
+  updateResidents(state, dt)
   for _, b in ipairs(state.game.buildings) do
     if b.type == "lumberyard" then
       ensureWorkerCount(state, b)
@@ -682,7 +747,15 @@ function workers.update(state, dt)
       -- compute if there is any project to work on (top queue or any)
       if (b.assigned or 0) > 0 and isDay then
         local tgt = findConstructionTarget(state, b.tileX, b.tileY)
-        if tgt then b._noWorkReason = nil else b._noWorkReason = 'No projects' end
+        if tgt then
+          if tgt.construction and tgt.construction.waitingForResources then
+            b._noWorkReason = 'No materials'
+          else
+            b._noWorkReason = nil
+          end
+        else
+          b._noWorkReason = 'No projects'
+        end
       else
         b._noWorkReason = nil
       end
@@ -750,51 +823,140 @@ function workers.update(state, dt)
               -- normal building work
               if not w.targetBuilding or (w.targetBuilding.construction and w.targetBuilding.construction.complete) then
                 w.targetBuilding = findConstructionTarget(state, b.tileX, b.tileY)
+                -- new target: require fresh materials fetch if site is new
+                if w.targetBuilding then
+                  w._currentBuildId = w.targetBuilding.id
+                  w._materialsFetched = false
+                  w.carryWood = false
+                  w._headingToStorage = false
+                  w._storageX, w._storageY = nil, nil
+                end
               end
               if w.targetBuilding then
                 local tx = w.targetBuilding.tileX * TILE + TILE / 2
                 local ty = w.targetBuilding.tileY * TILE + TILE / 2
-                -- On first engagement, pay cost and spawn pickup from source
-                if w.targetBuilding and w.targetBuilding.construction and w.targetBuilding.construction.waitingForResources then
-                  local btype = w.targetBuilding.type
-                  local def = state.buildingDefs[btype]
-                  local need = (def and def.cost and def.cost.wood) or 0
-                  if need > 0 then
-                    -- remove from base first then warehouses (match payCost semantics), but also spawn a visual at the source
-                    local base = state.game.resources.wood or 0
-                    local takeFromBase = math.min(base, need)
-                    if takeFromBase > 0 then
-                      state.game.resources.wood = base - takeFromBase
-                      -- HUD pickup surrogate near top bar
-                      particles.spawnDustBurst(state.game.particles, state.camera.x + 60, state.camera.y + 26)
-                    end
-                    local remaining = need - takeFromBase
-                    if remaining > 0 then
-                      for _, bb in ipairs(state.game.buildings) do
-                        if remaining <= 0 then break end
-                        if bb.type == 'warehouse' then
-                          bb.storage = bb.storage or {}
-                          local wv = bb.storage.wood or 0
-                          local take = math.min(wv, remaining)
-                          if take > 0 then
-                            bb.storage.wood = wv - take
-                            local sx = bb.tileX * TILE + TILE / 2
-                            local sy = bb.tileY * TILE + TILE / 2
-                            particles.spawnDustBurst(state.game.particles, sx, sy)
-                          end
-                          remaining = remaining - take
-                        end
-                      end
+                local btype = w.targetBuilding.type
+                local defB = state.buildingDefs[btype]
+                local need = (defB and defB.cost and defB.cost.wood) or 0
+                local c = w.targetBuilding.construction
+                local isNewSite = c and ((c.progress or 0) <= 0)
+                -- If materials are required but globally insufficient, wait at the builder workplace
+                if need > 0 and isNewSite and c and c.waitingForResources and not c.paymentTaken then
+                  local available = (state.game.resources.wood or 0)
+                  for _, bb in ipairs(state.game.buildings) do
+                    if bb.type == 'warehouse' and bb.construction and bb.construction.complete and bb.storage and bb.storage.wood then
+                      available = available + bb.storage.wood
                     end
                   end
-                  w.targetBuilding.construction.waitingForResources = false
+                  if available < need then
+                    local cx = b.tileX * TILE + TILE / 2
+                    local cy = b.tileY * TILE + TILE / 2
+                    w.carryWood = false
+                    goTo(w, cx, cy, speed * 0.6, dt, state)
+                    goto builder_continue
+                  end
+                end
+                -- Ensure materials are fetched before starting a new site with cost
+                if need > 0 and isNewSite and not w._materialsFetched then
+                  -- Always fetch from a storage first for visuals; if payment not yet taken, the first arrival will pay globally
+                  if not w._headingToStorage then
+                    local nearWh = findNearestWarehouse(state, math.floor(w.x / TILE), math.floor(w.y / TILE))
+                    if nearWh then
+                      w._storageX = nearWh.tileX * TILE + TILE / 2
+                      w._storageY = nearWh.tileY * TILE + TILE / 2
+                      w._storageType = 'warehouse'
+                      w._storageRef = nearWh
+                    else
+                      -- base pickup proxy: builder workplace center
+                      w._storageX = b.tileX * TILE + TILE / 2
+                      w._storageY = b.tileY * TILE + TILE / 2
+                      w._storageType = 'base'
+                      w._storageRef = nil
+                    end
+                    w._headingToStorage = true
+                  end
+                  if w._headingToStorage and w._storageX and w._storageY then
+                    if goTo(w, w._storageX, w._storageY, speed, dt, state) then
+                      -- If payment already taken by someone else, just pick up visually
+                      if c.paymentTaken then
+                        w.carryWood = true
+                        w._materialsFetched = true
+                        w._headingToStorage = false
+                      else
+                        -- Try to pay cost globally (base then warehouses) once
+                        local available = (state.game.resources.wood or 0)
+                        for _, bb in ipairs(state.game.buildings) do
+                          if bb.type == 'warehouse' and bb.construction and bb.construction.complete and bb.storage and bb.storage.wood then
+                            available = available + bb.storage.wood
+                          end
+                        end
+                        if available >= need then
+                          -- deduct: base first then warehouses
+                          local base = state.game.resources.wood or 0
+                          local takeFromBase = math.min(base, need)
+                          if takeFromBase > 0 then
+                            state.game.resources.wood = base - takeFromBase
+                            particles.spawnDustBurst(state.game.particles, w._storageX, w._storageY)
+                          end
+                          local remaining = need - takeFromBase
+                          if remaining > 0 then
+                            for _, bb in ipairs(state.game.buildings) do
+                              if remaining <= 0 then break end
+                              if bb.type == 'warehouse' and bb.construction and bb.construction.complete then
+                                bb.storage = bb.storage or {}
+                                local wv = bb.storage.wood or 0
+                                local take = math.min(wv, remaining)
+                                if take > 0 then
+                                  bb.storage.wood = wv - take
+                                  local sx = bb.tileX * TILE + TILE / 2
+                                  local sy = bb.tileY * TILE + TILE / 2
+                                  particles.spawnDustBurst(state.game.particles, sx, sy)
+                                  remaining = remaining - take
+                                end
+                              end
+                            end
+                          end
+                          c.paymentTaken = true
+                          w.carryWood = true
+                          w._materialsFetched = true
+                          w._headingToStorage = false
+                        else
+                          -- not enough globally; wait at builder workplace and retry later
+                          w._headingToStorage = false
+                          w._materialsFetched = false
+                          w.carryWood = false
+                          local cx = b.tileX * TILE + TILE / 2
+                          local cy = b.tileY * TILE + TILE / 2
+                          goTo(w, cx, cy, speed * 0.6, dt, state)
+                          goto builder_continue
+                        end
+                      end
+                    else
+                      goto builder_continue
+                    end
+                  end
+                end
+                -- If materials fetched for new site, carry them to the site and unlock on arrival
+                if need > 0 and isNewSite and w._materialsFetched and w.carryWood and c and c.waitingForResources and c.paymentTaken then
+                  if goTo(w, tx, ty, speed, dt, state) then
+                    -- drop materials and unlock construction
+                    w.carryWood = false
+                    c.waitingForResources = false
+                  else
+                    goto builder_continue
+                  end
+                end
+                -- Build if site is unlocked (either had no cost or materials delivered)
+                -- Visual: carry while moving to a construction site to build
+                if c and not c.complete and (not (isNewSite and c.waitingForResources and not w._materialsFetched)) then
+                  w.carryWood = true
                 end
                 if goTo(w, tx, ty, speed, dt, state) then
-                  local c = w.targetBuilding.construction
-                  if c and not c.complete then
-                    c.progress = math.min(c.required, (c.progress or 0) + ratePerWorker * dt)
-                    if c.progress >= c.required then
-                      c.complete = true
+                  local c2 = w.targetBuilding.construction
+                  if c2 and not c2.complete and not c2.waitingForResources then
+                    c2.progress = math.min(c2.required, (c2.progress or 0) + ratePerWorker * dt)
+                    if c2.progress >= c2.required then
+                      c2.complete = true
                       -- free claim
                       w.targetBuilding._claimedBy = nil
                       if w.targetBuilding.type == 'house' then
@@ -805,7 +967,15 @@ function workers.update(state, dt)
                         state.game.population.total = (state.game.population.total or 0) + cap
                       end
                       autoAssignOneIfPossible(state, w.targetBuilding)
+                      -- reset so next project requires fetching again
+                      w._currentBuildId = nil
+                      w._materialsFetched = false
+                      w.carryWood = false
                     end
+                  end
+                  -- arrived: stop carrying visual if not delivering materials
+                  if c2 and (not (isNewSite and c2.waitingForResources)) then
+                    w.carryWood = false
                   end
                 end
               else
@@ -1001,6 +1171,10 @@ function workers.draw(state)
         love.graphics.rectangle("fill", w.x - 5, w.y - 5, 10, 10, 2, 2)
         love.graphics.setColor(colors.outline)
         love.graphics.rectangle("line", w.x - 5, w.y - 5, 10, 10, 2, 2)
+        if w.carryWood then
+          love.graphics.setColor(colors.workerCarry)
+          love.graphics.rectangle('fill', w.x - 3, w.y - 12, 6, 4)
+        end
         ::builder_draw_continue::
       end
     elseif b.type == 'farm' and b.workers then
@@ -1042,6 +1216,15 @@ function workers.draw(state)
     end
   end
   drawVillagers(state)
+  -- draw visual residents as small dots if enabled
+  if state.ui.showWorldVillagerDots and state.game.residents then
+    for _, r in ipairs(state.game.residents) do
+      love.graphics.setColor(colors.worker[1], colors.worker[2], colors.worker[3], 0.8)
+      love.graphics.rectangle('fill', r.x - 3, r.y - 3, 6, 6, 2, 2)
+      love.graphics.setColor(colors.outline)
+      love.graphics.rectangle('line', r.x - 3, r.y - 3, 6, 6, 2, 2)
+    end
+  end
 end
 
 return workers 

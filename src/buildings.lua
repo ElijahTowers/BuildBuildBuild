@@ -511,9 +511,20 @@ end
 function buildings.drawSelectedRadius(state)
   local TILE_SIZE = constants.TILE_SIZE
   local b = state.ui.selectedBuilding
-  if not b or b.type ~= 'lumberyard' then return end
-  local def = state.buildingDefs.lumberyard
-  local radiusPx = def.radiusTiles * TILE_SIZE
+  if not b then return end
+  local def
+  local radiusTiles
+  if b.type == 'lumberyard' then
+    def = state.buildingDefs.lumberyard
+    radiusTiles = def.radiusTiles
+  elseif b.type == 'market' then
+    def = state.buildingDefs.market
+    radiusTiles = def.radiusTiles
+  else
+    return
+  end
+  local radiusPx = (radiusTiles or 0) * TILE_SIZE
+  if radiusPx <= 0 then return end
   local cx = b.tileX * TILE_SIZE + TILE_SIZE / 2
   local cy = b.tileY * TILE_SIZE + TILE_SIZE / 2
 
