@@ -68,6 +68,81 @@ function roads.update(state, dt)
   end
 end
 
+-- Find nearest road tile to a given tile within maxRadius (Manhattan)
+function roads.findNearestRoad(state, tx, ty, maxRadius)
+  ensureState(state)
+  maxRadius = maxRadius or 8
+  if roads.hasRoad(state, tx, ty) then return tx, ty end
+  for r = 1, maxRadius do
+    for dy = -r, r do
+      local dx = r - math.abs(dy)
+      local candidates = {
+        { tx + dx, ty + dy },
+        { tx - dx, ty + dy }
+      }
+      for i = 1, #candidates do
+        local x, y = candidates[i][1], candidates[i][2]
+        if roads.hasRoad(state, x, y) then return x, y end
+      end
+    end
+  end
+  return nil, nil
+end
+
+-- BFS on road graph between two road tiles; returns list of tiles from start to end
+local function bfsRoadPath(state, sx, sy, ex, ey)
+  if not (sx and sy and ex and ey) then return nil end
+  if sx == ex and sy == ey then return { { x = sx, y = sy } } end
+  local q = { { sx, sy } }
+  local head = 1
+  local visited = {}
+  local function K(x,y) return x .. "," .. y end
+  visited[K(sx,sy)] = true
+  local parent = {}
+  local dirs = { {1,0}, {-1,0}, {0,1}, {0,-1} }
+  while q[head] do
+    local cx, cy = q[head][1], q[head][2]
+    head = head + 1
+    for i=1,4 do
+      local nx, ny = cx + dirs[i][1], cy + dirs[i][2]
+      if not visited[K(nx,ny)] and roads.hasRoad(state, nx, ny) then
+        visited[K(nx,ny)] = true
+        parent[K(nx,ny)] = { cx, cy }
+        if nx == ex and ny == ey then
+          -- reconstruct
+          local path = { { x = nx, y = ny } }
+          local px, py = cx, cy
+          while px and py do
+            table.insert(path, 1, { x = px, y = py })
+            local p = parent[K(px,py)]
+            if not p then break end
+            px, py = p[1], p[2]
+          end
+          return path
+        end
+        table.insert(q, { nx, ny })
+      end
+    end
+  end
+  return nil
+end
+
+-- Public: compute a list of world points along a road route between near-start and near-end
+function roads.computeRoadRoute(state, startTileX, startTileY, endTileX, endTileY)
+  local sx, sy = roads.findNearestRoad(state, startTileX, startTileY, 8)
+  local ex, ey = roads.findNearestRoad(state, endTileX, endTileY, 8)
+  if not (sx and sy and ex and ey) then return nil end
+  local tilePath = bfsRoadPath(state, sx, sy, ex, ey)
+  if not tilePath or #tilePath == 0 then return nil end
+  local TILE = constants.TILE_SIZE
+  local points = {}
+  for i=1,#tilePath do
+    local t = tilePath[i]
+    table.insert(points, { x = t.x * TILE + TILE/2, y = t.y * TILE + TILE/2 })
+  end
+  return points
+end
+
 -- Check if a building occupies a tile
 local function hasBuilding(state, x, y)
   for _, b in ipairs(state.game.buildings or {}) do
@@ -227,16 +302,16 @@ function roads.draw(state)
     local cx = px + TILE / 2
     local cy = py + TILE / 2
 
-    -- base tile (blend with background)
-    love.graphics.setColor(0.18, 0.18, 0.20, 0.85)
+    -- base tile (blend with grass background)
+    love.graphics.setColor(0.16, 0.17, 0.18, 0.85)
     love.graphics.rectangle('fill', px + 2, py + 2, TILE - 4, TILE - 4, 4, 4)
 
     -- soft center strip
-    love.graphics.setColor(0.22, 0.22, 0.24, 0.6)
+    love.graphics.setColor(0.20, 0.22, 0.22, 0.6)
     love.graphics.rectangle('fill', px + 6, py + TILE / 2 - 1, TILE - 12, 2, 1, 1)
 
     -- connections (very subtle extensions)
-    love.graphics.setColor(0.16, 0.16, 0.18, 0.7)
+    love.graphics.setColor(0.15, 0.16, 0.17, 0.7)
     if has(state, x, y - 1) or hasBuilding(state, x, y - 1) then
       love.graphics.rectangle('fill', px + 6, py + 2, TILE - 12, TILE / 2 - 3)
     end

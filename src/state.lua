@@ -33,9 +33,11 @@ state.ui = {
   isVillagersPanelOpen = false,
   isBuildQueueOpen = false,
   isFoodPanelOpen = false,
+  isMissionSelectorOpen = false,
   _villagersPanelButtons = nil, -- temp bounds for assign/unassign in panel
   _speedButtons = nil,
   _foodButton = nil,
+  _missionSelectorButtons = nil,
   _miniMap = nil,
   showMinimap = true,
   forceGrid = false,
@@ -79,7 +81,7 @@ state.buildingDefs = {
     cost = { wood = 10 },
     residents = 3,
     production = nil,
-    buildRequired = 10
+    buildRequired = 30
   },
   lumberyard = {
     cost = { wood = 20 },
@@ -89,16 +91,16 @@ state.buildingDefs = {
     woodPerTree = 6,
     numWorkers = 2,
     workerSpeed = 120, -- pixels per second
-    buildRequired = 12
+    buildRequired = 36
   },
   warehouse = {
     cost = { wood = 20 },
     capacity = { wood = 200 },
-    buildRequired = 14
+    buildRequired = 42
   },
   market = {
     cost = { wood = 15 },
-    buildRequired = 10,
+    buildRequired = 30,
     radiusTiles = 16
   },
   builder = {
@@ -106,12 +108,12 @@ state.buildingDefs = {
     numWorkers = 5,
     workerSpeed = 120,
     buildRate = 2.0, -- build progress per second per worker
-    buildRequired = 12,
+    buildRequired = 36,
     residents = 5
   },
   farm = {
     cost = { wood = 15 },
-    buildRequired = 10,
+    buildRequired = 30,
     numWorkers = 2,
     workerSpeed = 120,
     harvestTime = 6.0, -- seconds per trip (balanced)

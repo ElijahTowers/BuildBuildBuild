@@ -355,6 +355,35 @@ local function goTo(w, px, py, speed, dt, state)
     w._waypoint = nil
   end
 
+  -- Optional: follow a cached road route if available and beneficial
+  if state and not w._route and state.game and state.game.roads then
+    -- if both start and target are reasonably far, try computing a road route
+    local distTiles = (math.abs((px - w.x) / TILE) + math.abs((py - w.y) / TILE))
+    if distTiles >= 6 then
+      local startTileX, startTileY = math.floor(w.x / TILE), math.floor(w.y / TILE)
+      local endTileX, endTileY = math.floor(px / TILE), math.floor(py / TILE)
+      local route = roads.computeRoadRoute(state, startTileX, startTileY, endTileX, endTileY)
+      if route and #route >= 2 then
+        w._route = route
+        w._routeIndex = 1
+      end
+    end
+  end
+  if w._route and w._routeIndex then
+    local tgt = w._route[w._routeIndex]
+    if tgt then px, py = tgt.x, tgt.y end
+    -- fail-safe: if we're on a road but our route next point is also current cell or too close repeatedly, clear route
+    local tileX, tileY = math.floor(w.x / TILE), math.floor(w.y / TILE)
+    if roads.hasRoad(state, tileX, tileY) then
+      local dxr = math.abs(px - w.x)
+      local dyr = math.abs(py - w.y)
+      if dxr + dyr < 1 then
+        w._routeIndex = w._routeIndex + 1
+        if not w._route[w._routeIndex] then w._route = nil; w._routeIndex = nil end
+      end
+    end
+  end
+
   local dx = px - w.x
   local dy = py - w.y
   local dist = math.sqrt(dx * dx + dy * dy)
@@ -383,6 +412,15 @@ local function goTo(w, px, py, speed, dt, state)
   if dist <= arriveDist then
     w.x = px
     w.y = py
+    if w._route and w._routeIndex then
+      -- advance to next route point
+      w._routeIndex = w._routeIndex + 1
+      if not w._route[w._routeIndex] then
+        w._route = nil
+        w._routeIndex = nil
+      end
+      return false
+    end
     if w._waypoint and math.abs(px - w._waypoint.x) + math.abs(py - w._waypoint.y) < 1 then
       -- reached steering waypoint; clear so next step heads to original target
       w._waypoint = nil

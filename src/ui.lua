@@ -128,11 +128,30 @@ function ui.getBuildMenuOptionAt(mx, my)
 end
 
 function ui.drawTopButtons(state)
+  -- Fancy skin helpers
+  local function drawFancyPanel(x, y, w, h)
+    love.graphics.setColor(0, 0, 0, 0.25)
+    love.graphics.rectangle('fill', x + 2, y + 3, w, h, 8, 8)
+    love.graphics.setColor(0.16, 0.23, 0.16, 0.96)
+    love.graphics.rectangle('fill', x, y, w, h, 8, 8)
+    -- soft highlight
+    love.graphics.setColor(1, 1, 1, 0.05)
+    love.graphics.rectangle('fill', x + 4, y + 4, w - 8, math.max(10, h * 0.35), 6, 6)
+    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.rectangle('line', x, y, w, h, 8, 8)
+  end
+
   local function drawButton(b, active, hint)
     local mx, my = love.mouse.getPosition()
     local hovered = utils.isPointInRect(mx, my, b.x, b.y, b.width, b.height)
-    love.graphics.setColor(active and colors.buttonHover or (hovered and colors.buttonHover or colors.button))
+    -- glossy button
+    local base = active and {0.25,0.42,0.20,1} or (hovered and {0.22,0.36,0.18,1} or {0.20,0.30,0.17,1})
+    love.graphics.setColor(0, 0, 0, 0.25)
+    love.graphics.rectangle('fill', b.x + 2, b.y + 3, b.width, b.height, 6, 6)
+    love.graphics.setColor(base)
     love.graphics.rectangle("fill", b.x, b.y, b.width, b.height, 6, 6)
+    love.graphics.setColor(1, 1, 1, 0.06)
+    love.graphics.rectangle('fill', b.x + 4, b.y + 4, b.width - 8, math.max(10, b.height * 0.45), 5, 5)
     love.graphics.setColor(colors.uiPanelOutline)
     love.graphics.rectangle("line", b.x, b.y, b.width, b.height, 6, 6)
     love.graphics.setColor(colors.text)
@@ -147,6 +166,10 @@ function ui.drawTopButtons(state)
   drawButton(ui.roadButton, state.ui.isPlacingRoad, "R")
   drawButton(ui.villagersButton, state.ui.isVillagersPanelOpen, "V")
   drawButton(ui.queueButton, state.ui.isBuildQueueOpen, "Q")
+  -- Debug: Mission selector small button to the right of Queue
+  local dbg = { x = ui.queueButton.x + ui.queueButton.width + 8, y = ui.queueButton.y, width = 100, height = ui.queueButton.height, label = "Missions" }
+  ui._missionSelectorButtons = { open = dbg }
+  drawButton(dbg, state.ui.isMissionSelectorOpen, "M")
 end
 
 function ui.drawBuildMenu(state, buildingDefs)
@@ -170,10 +193,15 @@ function ui.drawBuildMenu(state, buildingDefs)
   love.graphics.scale(scale, scale)
   love.graphics.translate(-(x + w / 2), -(y + h / 2))
 
-  love.graphics.setColor(colors.uiPanel[1], colors.uiPanel[2], colors.uiPanel[3], (colors.uiPanel[4] or 1) * a)
-  love.graphics.rectangle("fill", x, y, w, h, 8, 8)
+  -- fancy panel skin (objectives panel uses warm brown for contrast)
+  love.graphics.setColor(0,0,0,0.25 * a)
+  love.graphics.rectangle('fill', x + 3, y + 4, w, h, 10, 10)
+  love.graphics.setColor(0.28, 0.20, 0.12, 0.96 * a)
+  love.graphics.rectangle('fill', x, y, w, h, 10, 10)
+  love.graphics.setColor(1,1,1,0.06 * a)
+  love.graphics.rectangle('fill', x + 6, y + 6, w - 12, math.max(16, h * 0.18), 8, 8)
   love.graphics.setColor(colors.uiPanelOutline[1], colors.uiPanelOutline[2], colors.uiPanelOutline[3], (colors.uiPanelOutline[4] or 1) * a)
-  love.graphics.rectangle("line", x, y, w, h, 8, 8)
+  love.graphics.rectangle('line', x, y, w, h, 10, 10)
 
   local optionHeight = m.optionHeight
   for index, option in ipairs(m.options) do
@@ -184,7 +212,9 @@ function ui.drawBuildMenu(state, buildingDefs)
     local mx, my = love.mouse.getPosition()
     local hovered = utils.isPointInRect(mx, my, ox, oy, ow, oh)
 
-    love.graphics.setColor(hovered and colors.buttonHover or colors.button)
+    love.graphics.setColor(0,0,0,0.18)
+    love.graphics.rectangle('fill', ox + 2, oy + 3, ow, oh, 6, 6)
+    love.graphics.setColor(hovered and {0.22,0.36,0.18,1} or {0.20,0.30,0.17,1})
     love.graphics.rectangle("fill", ox, oy, ow, oh, 6, 6)
     love.graphics.setColor(colors.uiPanelOutline)
     love.graphics.rectangle("line", ox, oy, ow, oh, 6, 6)
@@ -424,11 +454,15 @@ function ui.drawMiniMap(state)
   -- Store for click handling
   state.ui._miniMap = { x = x, y = y, w = mapW, h = mapH, scale = scale }
 
-  -- Background panel
-  love.graphics.setColor(colors.uiPanel)
-  love.graphics.rectangle('fill', x - 8, y - 8, mapW + 16, mapH + 16, 8, 8)
+  -- Background panel (fancy)
+  love.graphics.setColor(0,0,0,0.25)
+  love.graphics.rectangle('fill', x - 6, y - 6, mapW + 16, mapH + 16, 10, 10)
+  love.graphics.setColor(0.16,0.23,0.16,0.96)
+  love.graphics.rectangle('fill', x - 8, y - 8, mapW + 16, mapH + 16, 10, 10)
+  love.graphics.setColor(1,1,1,0.05)
+  love.graphics.rectangle('fill', x - 6, y - 6, mapW + 12, math.max(10, (mapH + 12) * 0.18), 8, 8)
   love.graphics.setColor(colors.uiPanelOutline)
-  love.graphics.rectangle('line', x - 8, y - 8, mapW + 16, mapH + 16, 8, 8)
+  love.graphics.rectangle('line', x - 8, y - 8, mapW + 16, mapH + 16, 10, 10)
 
   -- Draw roads
   if state.game.roads then
@@ -488,10 +522,16 @@ function ui.drawHUD(state)
   local y = 16
   local w = 600
   local h = 100
-  love.graphics.setColor(colors.uiPanel)
-  love.graphics.rectangle("fill", x, y, w, h, 8, 8)
+  -- fancy panel
+  -- HUD uses a muted teal variant for contrast
+  love.graphics.setColor(0,0,0,0.25)
+  love.graphics.rectangle('fill', x + 3, y + 4, w, h, 10, 10)
+  love.graphics.setColor(0.12,0.28,0.30,0.96)
+  love.graphics.rectangle('fill', x, y, w, h, 10, 10)
+  love.graphics.setColor(1,1,1,0.06)
+  love.graphics.rectangle('fill', x + 6, y + 6, w - 12, math.max(16, h * 0.25), 8, 8)
   love.graphics.setColor(colors.uiPanelOutline)
-  love.graphics.rectangle("line", x, y, w, h, 8, 8)
+  love.graphics.rectangle('line', x, y, w, h, 10, 10)
 
   love.graphics.setColor(colors.text)
   local baseWood = math.floor(state.game.resources.wood + 0.5)
@@ -530,8 +570,12 @@ function ui.drawHUD(state)
   local s4x = s2x + btnW + 6; local s4y = s1y
   local s8x = s4x + btnW + 6; local s8y = s1y
   local function drawSpeed(xb, yb, label, active)
-    love.graphics.setColor(active and colors.buttonHover or colors.button)
+    love.graphics.setColor(0,0,0,0.2)
+    love.graphics.rectangle('fill', xb + 2, yb + 2, btnW, btnH, 6, 6)
+    love.graphics.setColor(active and {0.20,0.46,0.50,1} or {0.14,0.34,0.36,1})
     love.graphics.rectangle('fill', xb, yb, btnW, btnH, 6, 6)
+    love.graphics.setColor(1,1,1,0.06)
+    love.graphics.rectangle('fill', xb + 3, yb + 3, btnW - 6, math.max(8, btnH * 0.5), 4, 4)
     love.graphics.setColor(colors.uiPanelOutline)
     love.graphics.rectangle('line', xb, yb, btnW, btnH, 6, 6)
     love.graphics.setColor(colors.text)
@@ -575,7 +619,7 @@ end
 function ui.drawFoodPanel(state)
   if not state.ui.isFoodPanelOpen then return end
   local screenW, screenH = love.graphics.getDimensions()
-  love.graphics.setColor(0, 0, 0, 0.45)
+  love.graphics.setColor(0, 0, 0, 0.35)
   love.graphics.rectangle('fill', 0, 0, screenW, screenH)
 
   local panelW = 520
@@ -583,8 +627,12 @@ function ui.drawFoodPanel(state)
   local px = (screenW - panelW) / 2
   local py = (screenH - panelH) / 2
 
-  love.graphics.setColor(colors.uiPanel)
+  love.graphics.setColor(0,0,0,0.25)
+  love.graphics.rectangle('fill', px + 3, py + 4, panelW, panelH, 10, 10)
+  love.graphics.setColor(0.16,0.23,0.16,0.96)
   love.graphics.rectangle('fill', px, py, panelW, panelH, 10, 10)
+  love.graphics.setColor(1,1,1,0.06)
+  love.graphics.rectangle('fill', px + 6, py + 6, panelW - 12, math.max(16, panelH * 0.18), 8, 8)
   love.graphics.setColor(colors.uiPanelOutline)
   love.graphics.rectangle('line', px, py, panelW, panelH, 10, 10)
 
@@ -671,25 +719,97 @@ end
 function ui.drawMissionPanel(state)
   local M = state.mission
   if not M or not M.active then return end
-  local w, h = 360, 130
-  local x, y = love.graphics.getWidth() - w - 16, love.graphics.getHeight() - h - 16
-  love.graphics.setColor(colors.uiPanel)
+  -- If mission selector is open, draw it instead for clarity
+  if state.ui.isMissionSelectorOpen then
+    local screenW, screenH = love.graphics.getDimensions()
+    love.graphics.setColor(0, 0, 0, 0.35)
+    love.graphics.rectangle('fill', 0, 0, screenW, screenH)
+    local w, h = 420, 260
+    local x, y = (screenW - w) / 2, (screenH - h) / 2
+    love.graphics.setColor(0,0,0,0.25)
+    love.graphics.rectangle('fill', x + 3, y + 4, w, h, 10, 10)
+    love.graphics.setColor(0.16,0.23,0.16,0.96)
+    love.graphics.rectangle('fill', x, y, w, h, 10, 10)
+    love.graphics.setColor(1,1,1,0.06)
+    love.graphics.rectangle('fill', x + 6, y + 6, w - 12, math.max(16, h * 0.18), 8, 8)
+    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.rectangle('line', x, y, w, h, 10, 10)
+    love.graphics.setColor(colors.text)
+    love.graphics.print('Mission Selector (Debug)', x + 12, y + 12)
+    local options = {
+      { label = 'Stage 1: First Foundations', id = 1 },
+      { label = 'Stage 2: Food and Logistics', id = 2 },
+      { label = 'Stage 3: Night Market City', id = 3 },
+      { label = "Stage 4: Builders' Pride", id = 4 },
+      { label = 'Stage 5: Green Belt', id = 5 },
+      { label = 'Stage 6: Festival Day', id = 6 },
+      { label = 'Stage 7: Master Planner', id = 7 }
+    }
+    state.ui._missionSelectorButtons = {}
+    local oy = y + 40
+    for i, opt in ipairs(options) do
+      local btn = { x = x + 12, y = oy, w = w - 24, h = 30, id = opt.id, label = opt.label }
+      local mx, my = love.mouse.getPosition()
+      local hovered = utils.isPointInRect(mx, my, btn.x, btn.y, btn.w, btn.h)
+      if hovered then love.graphics.setColor(colors.buttonHover) else love.graphics.setColor(colors.button) end
+      love.graphics.rectangle('fill', btn.x, btn.y, btn.w, btn.h, 8, 8)
+      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.rectangle('line', btn.x, btn.y, btn.w, btn.h, 8, 8)
+      love.graphics.setColor(colors.text)
+      love.graphics.printf(opt.label, btn.x, btn.y + 8, btn.w, 'center')
+      table.insert(state.ui._missionSelectorButtons, btn)
+      oy = oy + 36
+    end
+    return
+  end
+  -- Layout calculations with dynamic height and text wrapping
+  local w = 420
+  local padding = 12
+  local titleH = 24
+  local font = love.graphics.getFont()
+  local lineH = font:getHeight()
+  local contentH = titleH + 6
+  local textW = w - 44
+  -- Measure objective blocks
+  for _, o in ipairs(M.objectives or {}) do
+    local _, lines = font:getWrap(o.text or '', textW)
+    local linesH = math.max(lineH, #lines * lineH)
+    local barH = (o.target and o.target > 1) and (10 + 8) or 0
+    contentH = contentH + math.max(24, linesH) + barH + 10
+  end
+  if M.completed then contentH = contentH + 20 end
+  local h = contentH + padding * 2
+  local x = love.graphics.getWidth() - w - 16
+  local y = love.graphics.getHeight() - h - 16
+
+  -- Panel background styled like HUD (teal theme)
+  love.graphics.setColor(0,0,0,0.25)
+  love.graphics.rectangle('fill', x + 3, y + 4, w, h, 10, 10)
+  love.graphics.setColor(0.12,0.28,0.30,0.96)
   love.graphics.rectangle('fill', x, y, w, h, 10, 10)
+  love.graphics.setColor(1,1,1,0.06)
+  love.graphics.rectangle('fill', x + 6, y + 6, w - 12, math.max(16, h * 0.18), 8, 8)
   love.graphics.setColor(colors.uiPanelOutline)
   love.graphics.rectangle('line', x, y, w, h, 10, 10)
 
+  -- Title with subtle shadow
+  love.graphics.setColor(0, 0, 0, 0.35)
+  love.graphics.print('Mission: ' .. (M.name or 'Unknown'), x + 13, y + 11)
   love.graphics.setColor(colors.text)
   love.graphics.print('Mission: ' .. (M.name or 'Unknown'), x + 12, y + 10)
-  local oy = y + 30
+
+  local oy = y + 10 + titleH
   for _, o in ipairs(M.objectives or {}) do
-    -- fancy check mark
+    -- check badge with halo
     local cx = x + 18
-    local cy = oy + 8
+    local cy = oy + 10
     local r = 7
     local glow = (o.completePulse or 0)
     if o.done then
-      love.graphics.setColor(0.2, 0.8, 0.3, 0.9)
-      local scale = 1 + 0.3 * glow
+      love.graphics.setColor(1, 1, 0.6, 0.25 * (glow > 0 and glow or 0.6))
+      love.graphics.circle('line', cx, cy, r + 4)
+      love.graphics.setColor(0.2, 0.8, 0.3, 0.95)
+      local scale = 1 + 0.2 * (glow or 0)
       love.graphics.circle('fill', cx, cy, r * scale)
       love.graphics.setColor(1, 1, 1, 1)
       love.graphics.setLineWidth(2)
@@ -703,34 +823,37 @@ function ui.drawMissionPanel(state)
       love.graphics.circle('line', cx, cy, r)
     end
 
+    -- Wrapped text
     love.graphics.setColor(colors.text)
-    love.graphics.print(o.text, x + 32, oy)
+    local tx = x + 32
+    local tw = textW
+    local _, lines = font:getWrap(o.text or '', tw)
+    local textLines = math.max(1, #lines)
+    local textHeight = textLines * lineH
+    love.graphics.printf(o.text or '', tx, oy - 2, tw, 'left')
 
-    -- progress bar
+    -- Progress bar (fancy)
+    local blockBottom = oy - 2 + math.max(lineH, textHeight)
     if o.target and o.target > 1 then
       local bw, bh = w - 44, 10
-      local bx, by = x + 32, oy + 14
+      local bx, by = x + 32, blockBottom + 6
       local p = math.min(1, (o.current or 0) / o.target)
-      love.graphics.setColor(0, 0, 0, 0.4)
+      love.graphics.setColor(0, 0, 0, 0.35)
       love.graphics.rectangle('fill', bx, by, bw, bh, 4, 4)
-      love.graphics.setColor(0.2, 0.8, 0.3, 0.9)
+      love.graphics.setColor(0.25, 0.75, 0.35, 0.95)
       love.graphics.rectangle('fill', bx, by, bw * p, bh, 4, 4)
       if (o.pulse or 0) > 0 then
-        love.graphics.setColor(1, 1, 1, 0.25 * (o.pulse or 0))
+        love.graphics.setColor(1, 1, 1, 0.2 * (o.pulse or 0))
         love.graphics.rectangle('line', bx, by, bw, bh, 4, 4)
       end
       love.graphics.setColor(colors.uiPanelOutline)
       love.graphics.rectangle('line', bx, by, bw, bh, 4, 4)
       love.graphics.setColor(colors.text)
       love.graphics.printf(string.format('%d / %d', math.floor(o.current or 0), o.target), bx, by - 10, bw, 'right')
+      oy = by + bh + 10
+    else
+      oy = blockBottom + 10
     end
-
-    -- completion glow frame
-    if glow and glow > 0 then
-      love.graphics.setColor(1, 1, 0.6, 0.4 * glow)
-      love.graphics.rectangle('line', x + 8, oy - 2, w - 16, 24, 6, 6)
-    end
-    oy = oy + 28
   end
   if M.completed then
     love.graphics.setColor(1, 1, 0.6, 1)
@@ -756,8 +879,13 @@ function ui.drawPrompt(state)
       local remain = math.max(0, dur - t)
       alpha = math.min(1, remain / (dur * 0.5))
     end
-    love.graphics.setColor(0, 0, 0, 0.75 * alpha)
+    -- Teal theme like HUD
+    love.graphics.setColor(0, 0, 0, 0.25 * alpha)
+    love.graphics.rectangle('fill', baseX + 3, y + 3, w, h, 10, 10)
+    love.graphics.setColor(0.12, 0.28, 0.30, 0.96 * alpha)
     love.graphics.rectangle('fill', baseX, y, w, h, 10, 10)
+    love.graphics.setColor(1, 1, 1, 0.06 * alpha)
+    love.graphics.rectangle('fill', baseX + 6, y + 6, w - 12, math.max(12, h * 0.4), 8, 8)
     love.graphics.setColor(colors.uiPanelOutline[1], colors.uiPanelOutline[2], colors.uiPanelOutline[3], 0.9 * alpha)
     love.graphics.rectangle('line', baseX, y, w, h, 10, 10)
     love.graphics.setColor(colors.text[1], colors.text[2], colors.text[3], alpha)

@@ -6,7 +6,8 @@ local constants = {}
 constants.TILE_SIZE = 32
 
 constants.colors = {
-  background = { 0.12, 0.12, 0.14, 1.0 },
+  -- subtle grass palette for background and roads blending
+  background = { 0.15, 0.26, 0.12, 1.0 },
   grid = { 0.22, 0.22, 0.25, 1.0 },
   uiPanel = { 0.15, 0.15, 0.18, 1.0 },
   uiPanelOutline = { 1, 1, 1, 0.08 },

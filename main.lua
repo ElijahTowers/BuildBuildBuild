@@ -188,7 +188,7 @@ function love.load()
 end
 
 function love.update(dt)
-  if state.ui.isPaused or state.ui.isBuildMenuOpen or state.ui.isVillagersPanelOpen or state.ui.isBuildQueueOpen or state.ui.isFoodPanelOpen then return end
+  if state.ui.isPaused or state.ui.isBuildMenuOpen or state.ui.isVillagersPanelOpen or state.ui.isBuildQueueOpen or state.ui.isFoodPanelOpen or state.ui.isMissionSelectorOpen then return end
   local isInitial = state.ui._pauseTimeForInitial
 
   -- Auto speed by day/night
@@ -482,6 +482,34 @@ function love.draw()
   love.graphics.push()
   love.graphics.scale(state.camera.scale, state.camera.scale)
   love.graphics.translate(-state.camera.x, -state.camera.y)
+
+  -- Grass-like background tiling for depth
+  do
+    local TILE = C.TILE_SIZE
+    local screenW, screenH = love.graphics.getDimensions()
+    local visibleW = screenW / (state.camera.scale or 1)
+    local visibleH = screenH / (state.camera.scale or 1)
+    local startX = math.floor(state.camera.x / TILE) - 1
+    local startY = math.floor(state.camera.y / TILE) - 1
+    local endX = math.ceil((state.camera.x + visibleW) / TILE) + 1
+    local endY = math.ceil((state.camera.y + visibleH) / TILE) + 1
+    for ty = startY, endY do
+      for tx = startX, endX do
+        local px = tx * TILE
+        local py = ty * TILE
+        -- base patch
+        love.graphics.setColor(0.18, 0.32, 0.16, 1.0)
+        love.graphics.rectangle('fill', px, py, TILE, TILE)
+        -- blades overlay with slight noise (hash)
+        local n = math.abs(((tx * 73856093 + ty * 19349663) % 5))
+        local a = 0.08 + (n * 0.02)
+        love.graphics.setColor(0.25, 0.42, 0.20, a)
+        love.graphics.rectangle('fill', px + 2, py + 2, TILE - 4, TILE - 4, 6, 6)
+        love.graphics.setColor(0.22, 0.38, 0.18, a * 0.9)
+        love.graphics.rectangle('line', px + 3, py + 3, TILE - 6, TILE - 6, 6, 6)
+      end
+    end
+  end
 
   if state.ui.isPlacingBuilding and state.ui.selectedBuildingType then
     grid.draw(state)
@@ -970,6 +998,48 @@ function love.mousepressed(x, y, button)
     return
   end
 
+  -- Mission selector button click
+  if state.ui._missionSelectorButtons and state.ui._missionSelectorButtons.open then
+    local b = state.ui._missionSelectorButtons.open
+    if x >= b.x and x <= b.x + b.width and y >= b.y and y <= b.y + b.height then
+      state.ui.isMissionSelectorOpen = not state.ui.isMissionSelectorOpen
+      state.ui.isPaused = state.ui.isMissionSelectorOpen or state.ui.isPaused
+      return
+    end
+  end
+
+  -- Mission selector panel options
+  if state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
+    for _, btn in ipairs(state.ui._missionSelectorButtons) do
+      if x >= btn.x and x <= btn.x + btn.w and y >= btn.y and y <= btn.y + btn.h then
+        local missions = require('src.missions')
+        local id = btn.id
+        if id == 1 then
+          require('src.missions').reset(state)
+        elseif id == 2 then
+          require('src.missions').reset(state); state.mission.stage = 1; -- init
+          -- complete stage 1 instantly and advance to 2
+          state.mission.completed = true; state.mission.advanceTimer = 0; missions.update(state, 0.01)
+        else
+          -- brute: set stage and assign objectives like the auto-advance path does
+          if id == 3 then
+            state.mission.stage = 2; state.mission.completed = true; state.mission.advanceTimer = 0; missions.update(state, 0.01)
+          elseif id == 4 then
+            state.mission.stage = 3; state.mission.completed = true; state.mission.advanceTimer = 0; missions.update(state, 0.01)
+          elseif id == 5 then
+            state.mission.stage = 4; state.mission.completed = true; state.mission.advanceTimer = 0; missions.update(state, 0.01)
+          elseif id == 6 then
+            state.mission.stage = 5; state.mission.completed = true; state.mission.advanceTimer = 0; missions.update(state, 0.01)
+          elseif id == 7 then
+            state.mission.stage = 6; state.mission.completed = true; state.mission.advanceTimer = 0; missions.update(state, 0.01)
+          end
+        end
+        state.ui.isMissionSelectorOpen = false
+        state.ui.isPaused = false
+        return
+      end
+    end
+  end
   if state.ui.isPlacingRoad then
     local tx, ty = screenToTile(x, y)
     if not state.ui.roadStartTile then
@@ -1119,6 +1189,10 @@ function love.keypressed(key)
     end
   elseif key == 'v' then
     state.ui.isVillagersPanelOpen = not state.ui.isVillagersPanelOpen
+  elseif key == 'm' then
+    state.ui.isMissionSelectorOpen = not state.ui.isMissionSelectorOpen
+    -- Do not toggle global pause menu; the selector acts as its own overlay
+    return
   elseif key == 'q' then
     -- Toggle build queue only; do not open pause menu
     state.ui.isBuildQueueOpen = not state.ui.isBuildQueueOpen

@@ -360,7 +360,7 @@ function buildings.drawAll(state)
     local cx = px + TILE_SIZE / 2
     local cy = py + TILE_SIZE / 2
 
-    love.graphics.setColor(0, 0, 0, 0.22)
+    love.graphics.setColor(0, 0, 0, 0.18)
     love.graphics.ellipse('fill', cx, py + TILE_SIZE * 0.9, TILE_SIZE * 0.35, TILE_SIZE * 0.18)
 
     local appear = (b.anim and b.anim.appear) or 1

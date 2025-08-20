@@ -109,6 +109,31 @@ function particles.spawnFoodPickup(gameParticles, px, py)
   end
 end
 
+function particles.spawnConfetti(gameParticles, px, py)
+  for i = 1, 36 do
+    local angle = math.random() * math.pi * 2
+    local speed = 60 + math.random() * 120
+    local vx = math.cos(angle) * speed
+    local vy = math.sin(angle) * speed
+    local palette = {
+      {0.95, 0.35, 0.35, 1.0}, {0.35, 0.8, 0.45, 1.0}, {0.35, 0.55, 0.95, 1.0},
+      {0.95, 0.85, 0.3, 1.0}, {0.85, 0.35, 0.9, 1.0}
+    }
+    local c = palette[math.random(1, #palette)]
+    table.insert(gameParticles, {
+      x = px,
+      y = py,
+      vx = vx,
+      vy = vy,
+      life = 0.8 + math.random() * 0.7,
+      age = 0,
+      size = 2 + math.random() * 2,
+      color = { c[1], c[2], c[3], c[4] },
+      g = 90
+    })
+  end
+end
+
 function particles.update(gameParticles, dt)
   for i = #gameParticles, 1, -1 do
     local p = gameParticles[i]
