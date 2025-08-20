@@ -33,7 +33,8 @@ ui.buildMenu = {
     { key = "warehouse", label = "Warehouse", color = { 0.6, 0.6, 0.7, 1.0 } },
     { key = "market", label = "Market", color = { 0.85, 0.5, 0.25, 1.0 } },
     { key = "builder", label = "Builders Workplace", color = { 0.7, 0.5, 0.3, 1.0 } },
-    { key = "farm", label = "Farm", color = { 0.7, 0.8, 0.3, 1.0 } }
+    { key = "farm", label = "Farm", color = { 0.7, 0.8, 0.3, 1.0 } },
+    { key = "research", label = "Research Center", color = { 0.5, 0.6, 0.9, 1.0 } }
   }
 }
 
@@ -144,20 +145,21 @@ function ui.drawTopButtons(state)
   local function drawButton(b, active, hint)
     local mx, my = love.mouse.getPosition()
     local hovered = utils.isPointInRect(mx, my, b.x, b.y, b.width, b.height)
-    -- glossy button
-    local base = active and {0.25,0.42,0.20,1} or (hovered and {0.22,0.36,0.18,1} or {0.20,0.30,0.17,1})
-    love.graphics.setColor(0, 0, 0, 0.25)
-    love.graphics.rectangle('fill', b.x + 2, b.y + 3, b.width, b.height, 6, 6)
-    love.graphics.setColor(base)
-    love.graphics.rectangle("fill", b.x, b.y, b.width, b.height, 6, 6)
-    love.graphics.setColor(1, 1, 1, 0.06)
-    love.graphics.rectangle('fill', b.x + 4, b.y + 4, b.width - 8, math.max(10, b.height * 0.45), 5, 5)
-    love.graphics.setColor(colors.uiPanelOutline)
-    love.graphics.rectangle("line", b.x, b.y, b.width, b.height, 6, 6)
-    love.graphics.setColor(colors.text)
+    -- parchment-style button
+    love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
+    love.graphics.rectangle('fill', b.x - 2, b.y + 2, b.width + 4, b.height + 4, 6, 6)
+    love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
+    love.graphics.rectangle('fill', b.x, b.y, b.width, b.height, 6, 6)
+    love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
+    love.graphics.rectangle('line', b.x, b.y, b.width, b.height, 6, 6)
+    if active or hovered then
+      love.graphics.setColor(0.20, 0.78, 0.30, hovered and 0.18 or 0.12)
+      love.graphics.rectangle('fill', b.x + 3, b.y + 3, b.width - 6, b.height - 6, 4, 4)
+    end
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
     love.graphics.printf(b.label, b.x, b.y + 12, b.width, "center")
     if hint then
-      love.graphics.setColor(colors.text[1], colors.text[2], colors.text[3], 0.6)
+      love.graphics.setColor(0.18, 0.11, 0.06, 0.7)
       love.graphics.printf(hint, b.x + b.width - 28, b.y + 6, 24, "right")
     end
   end
@@ -170,6 +172,51 @@ function ui.drawTopButtons(state)
   local dbg = { x = ui.queueButton.x + ui.queueButton.width + 8, y = ui.queueButton.y, width = 100, height = ui.queueButton.height, label = "Missions" }
   ui._missionSelectorButtons = { open = dbg }
   drawButton(dbg, state.ui.isMissionSelectorOpen, "M")
+end
+
+-- Fancy smooth checkmark helper
+local function drawFancyCheck(cx, cy, r, pulse)
+  r = r or 8
+  local a = 0.35 * math.min(1, pulse or 0)
+  for i = 1, 3 do
+    love.graphics.setColor(1, 0.9, 0.3, a * (1 - (i - 1) * 0.35))
+    love.graphics.circle('line', cx, cy, r + i * 3)
+  end
+  love.graphics.setColor(0.95, 0.85, 0.45, 1.0)
+  love.graphics.circle('fill', cx, cy, r)
+  love.graphics.setColor(0.55, 0.38, 0.10, 0.95)
+  love.graphics.circle('line', cx, cy, r)
+  -- glossy highlight
+  love.graphics.setColor(1, 1, 1, 0.15)
+  love.graphics.ellipse('fill', cx - r * 0.2, cy - r * 0.35, r * 0.6, r * 0.35)
+  -- check stroke
+  love.graphics.setColor(0.20, 0.78, 0.30, 1.0)
+  love.graphics.setLineWidth(3)
+  love.graphics.line(cx - r * 0.45, cy + r * 0.05, cx - r * 0.15, cy + r * 0.35)
+  love.graphics.line(cx - r * 0.15, cy + r * 0.35, cx + r * 0.50, cy - r * 0.35)
+  love.graphics.setLineWidth(1)
+end
+
+-- Shared parchment panel helper (matches objectives theme)
+local function drawParchmentPanel(px, py, pw, ph)
+  -- outer shadow/border (warmer, less bright)
+  love.graphics.setColor(0.32, 0.20, 0.10, 1.0)
+  love.graphics.rectangle('fill', px - 4, py - 4, pw + 8, ph + 8)
+  love.graphics.setColor(0.16, 0.10, 0.05, 1.0)
+  love.graphics.rectangle('line', px - 4, py - 4, pw + 8, ph + 8)
+  -- parchment body (warmer tone)
+  love.graphics.setColor(0.90, 0.76, 0.52, 1.0)
+  love.graphics.rectangle('fill', px, py, pw, ph)
+  love.graphics.setColor(0.70, 0.48, 0.28, 1.0)
+  love.graphics.rectangle('line', px, py, pw, ph)
+end
+
+-- Parchment frame only (no inner fill)
+local function drawParchmentFrame(px, py, pw, ph)
+  love.graphics.setColor(0.32, 0.20, 0.10, 1.0)
+  love.graphics.rectangle('line', px - 4, py - 4, pw + 8, ph + 8)
+  love.graphics.setColor(0.70, 0.48, 0.28, 1.0)
+  love.graphics.rectangle('line', px, py, pw, ph)
 end
 
 function ui.drawBuildMenu(state, buildingDefs)
@@ -212,12 +259,17 @@ function ui.drawBuildMenu(state, buildingDefs)
     local mx, my = love.mouse.getPosition()
     local hovered = utils.isPointInRect(mx, my, ox, oy, ow, oh)
 
-    love.graphics.setColor(0,0,0,0.18)
-    love.graphics.rectangle('fill', ox + 2, oy + 3, ow, oh, 6, 6)
-    love.graphics.setColor(hovered and {0.22,0.36,0.18,1} or {0.20,0.30,0.17,1})
+    -- parchment-style option row
+    love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
+    love.graphics.rectangle('fill', ox - 2, oy + 2, ow + 4, oh + 4, 6, 6)
+    love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
     love.graphics.rectangle("fill", ox, oy, ow, oh, 6, 6)
-    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
     love.graphics.rectangle("line", ox, oy, ow, oh, 6, 6)
+    if hovered then
+      love.graphics.setColor(0.20, 0.78, 0.30, 0.15)
+      love.graphics.rectangle('fill', ox + 3, oy + 3, ow - 6, oh - 6, 4, 4)
+    end
 
     love.graphics.setColor(option.color)
     love.graphics.rectangle("fill", ox + 10, oy + 8, 32, 32, 4, 4)
@@ -229,7 +281,7 @@ function ui.drawBuildMenu(state, buildingDefs)
     buildings.drawIcon(option.key, 0, 0, 28, 0)
     love.graphics.pop()
 
-    love.graphics.setColor(colors.text[1], colors.text[2], colors.text[3], (colors.text[4] or 1) * a)
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0 * a)
     local def = buildingDefs[option.key]
     local costText = ""
     if def and def.cost and def.cost.wood then
@@ -240,7 +292,7 @@ function ui.drawBuildMenu(state, buildingDefs)
     -- shortcuts for quick build (if defined)
     local shortcut = (option.key == 'house' and 'H') or (option.key == 'lumberyard' and 'L') or (option.key == 'warehouse' and 'W') or (option.key == 'market' and 'M') or (option.key == 'builder' and 'B') or (option.key == 'farm' and 'F') or nil
     if shortcut then
-      love.graphics.setColor(colors.text[1], colors.text[2], colors.text[3], 0.6)
+      love.graphics.setColor(0.18, 0.11, 0.06, 0.75)
       love.graphics.printf(shortcut, ox + ow - 28, oy + 6, 24, 'right')
     end
   end
@@ -258,12 +310,9 @@ function ui.drawVillagersPanel(state)
   local screenW, screenH = love.graphics.getDimensions()
   local x = (screenW - w) / 2
   local y = (screenH - h) / 2
-  love.graphics.setColor(colors.uiPanel)
-  love.graphics.rectangle('fill', x, y, w, h, 10, 10)
-  love.graphics.setColor(colors.uiPanelOutline)
-  love.graphics.rectangle('line', x, y, w, h, 10, 10)
+  drawParchmentPanel(x, y, w, h)
 
-  love.graphics.setColor(colors.text)
+  love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
   local pop = state.game.population
   love.graphics.print(string.format('Villagers: %d / %d assigned', pop.assigned or 0, pop.total or 0), x + 12, y + 12)
   love.graphics.print(string.format('Capacity: %d', pop.capacity or 0), x + 12, y + 32)
@@ -271,25 +320,31 @@ function ui.drawVillagersPanel(state)
   local btns = {}
   local rowY = y + 64
   for _, b in ipairs(state.game.buildings) do
-    if b.type == 'lumberyard' or b.type == 'builder' or b.type == 'farm' then
-      local name = (b.type == 'lumberyard') and 'Lumberyard' or (b.type == 'builder' and 'Builders Workplace' or 'Farm')
-      local maxSlots = (b.type == 'lumberyard') and (state.buildingDefs.lumberyard.numWorkers or 0) or (b.type == 'builder' and (state.buildingDefs.builder.numWorkers or 0) or (state.buildingDefs.farm.numWorkers or 0))
-      love.graphics.setColor(colors.text)
+    if b.type == 'lumberyard' or b.type == 'builder' or b.type == 'farm' or b.type == 'research' then
+      local name = (b.type == 'lumberyard') and 'Lumberyard' or (b.type == 'builder' and 'Builders Workplace' or (b.type == 'farm' and 'Farm' or 'Research Center'))
+      local maxSlots = (b.type == 'lumberyard') and (state.buildingDefs.lumberyard.numWorkers or 0)
+        or (b.type == 'builder' and (state.buildingDefs.builder.numWorkers or 0)
+        or (b.type == 'farm' and (state.buildingDefs.farm.numWorkers or 0) or (state.buildingDefs.research.numWorkers or 0)))
+      love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
       love.graphics.print(string.format('%s (%d/%d)  Location: (%d,%d)', name, b.assigned or 0, maxSlots, b.tileX, b.tileY), x + 12, rowY)
       local btnW, btnH = 28, 24
       local remX, remY = x + w - 76, rowY - 4
       local addX, addY = x + w - 40, rowY - 4
-      love.graphics.setColor(colors.button)
+      love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
+      love.graphics.rectangle('fill', remX - 2, remY + 2, btnW + 4, btnH + 4, 6, 6)
+      love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
       love.graphics.rectangle('fill', remX, remY, btnW, btnH, 6, 6)
-      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
       love.graphics.rectangle('line', remX, remY, btnW, btnH, 6, 6)
-      love.graphics.setColor(colors.text)
+      love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
       love.graphics.printf('-', remX, remY + 4, btnW, 'center')
-      love.graphics.setColor(colors.button)
+      love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
+      love.graphics.rectangle('fill', addX - 2, addY + 2, btnW + 4, btnH + 4, 6, 6)
+      love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
       love.graphics.rectangle('fill', addX, addY, btnW, btnH, 6, 6)
-      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
       love.graphics.rectangle('line', addX, addY, btnW, btnH, 6, 6)
-      love.graphics.setColor(colors.text)
+      love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
       love.graphics.printf('+', addX, addY + 4, btnW, 'center')
       table.insert(btns, { type = b.type, b = b, add = { x = addX, y = addY, w = btnW, h = btnH }, rem = { x = remX, y = remY, w = btnW, h = btnH } })
       rowY = rowY + 28
@@ -305,11 +360,8 @@ function ui.drawBuildQueue(state)
   -- Always center the panel in the middle of the screen
   local x = (screenW - w) / 2
   local y = (screenH - h) / 2
-  love.graphics.setColor(colors.uiPanel)
-  love.graphics.rectangle('fill', x, y, w, h, 10, 10)
-  love.graphics.setColor(colors.uiPanelOutline)
-  love.graphics.rectangle('line', x, y, w, h, 10, 10)
-  love.graphics.setColor(colors.text)
+  drawParchmentPanel(x, y, w, h)
+  love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
   love.graphics.print('Build Queue', x + 12, y + 12)
   local headerY = y + 36
   local rowH = 34
@@ -339,9 +391,14 @@ function ui.drawBuildQueue(state)
       if hovered then state.ui._queueHoverId = b.id end
       local isDraggedRow = (drag and drag.id == b.id)
       if not isDraggedRow then
-        love.graphics.setColor(0, 0, 0, hovered and 0.3 or 0.2)
+        love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
+        love.graphics.rectangle('fill', rowRect.x - 2, rowRect.y + 2, rowRect.w + 4, rowRect.h + 4, 6, 6)
+        love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
         love.graphics.rectangle('fill', rowRect.x, rowRect.y, rowRect.w, rowRect.h, 6, 6)
-        love.graphics.setColor(colors.text)
+        love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
+        love.graphics.rectangle('line', rowRect.x, rowRect.y, rowRect.w, rowRect.h, 6, 6)
+        if hovered then love.graphics.setColor(0.20, 0.78, 0.30, 0.12); love.graphics.rectangle('fill', rowRect.x+2, rowRect.y+2, rowRect.w-4, rowRect.h-4, 4, 4) end
+        love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
         -- icon
         buildings.drawIcon(b.type, x + 18, ry + (rowH/2), 24, 0)
         -- name + coords
@@ -353,35 +410,43 @@ function ui.drawBuildQueue(state)
         -- priority up/down
         local upx = x + w - 200; local upy = ry + 6
         local dnx = upx + btnW + 6; local dny = upy
-        love.graphics.setColor(colors.button)
+        love.graphics.setColor(0.35,0.22,0.12,1.0)
+        love.graphics.rectangle('fill', upx-2, upy+2, btnW+4, btnH+4, 6, 6)
+        love.graphics.setColor(0.95,0.82,0.60,1.0)
         love.graphics.rectangle('fill', upx, upy, btnW, btnH, 6, 6)
-        love.graphics.setColor(colors.uiPanelOutline)
+        love.graphics.setColor(0.78,0.54,0.34,1.0)
         love.graphics.rectangle('line', upx, upy, btnW, btnH, 6, 6)
-        love.graphics.setColor(colors.text)
+        love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
         love.graphics.printf('^', upx, upy + 2, btnW, 'center')
-        love.graphics.setColor(colors.button)
+        love.graphics.setColor(0.35,0.22,0.12,1.0)
+        love.graphics.rectangle('fill', dnx-2, dny+2, btnW+4, btnH+4, 6, 6)
+        love.graphics.setColor(0.95,0.82,0.60,1.0)
         love.graphics.rectangle('fill', dnx, dny, btnW, btnH, 6, 6)
-        love.graphics.setColor(colors.uiPanelOutline)
+        love.graphics.setColor(0.78,0.54,0.34,1.0)
         love.graphics.rectangle('line', dnx, dny, btnW, btnH, 6, 6)
-        love.graphics.setColor(colors.text)
+        love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
         love.graphics.printf('v', dnx, dny + 2, btnW, 'center')
         -- pause/resume
         local px = x + w - 140; local py = upy
         local label = (q.paused and 'Resume') or 'Pause'
         local pw = 64
-        love.graphics.setColor(colors.button)
+        love.graphics.setColor(0.35,0.22,0.12,1.0)
+        love.graphics.rectangle('fill', px-2, py+2, pw+4, btnH+4, 6, 6)
+        love.graphics.setColor(0.95,0.82,0.60,1.0)
         love.graphics.rectangle('fill', px, py, pw, btnH, 6, 6)
-        love.graphics.setColor(colors.uiPanelOutline)
+        love.graphics.setColor(0.78,0.54,0.34,1.0)
         love.graphics.rectangle('line', px, py, pw, btnH, 6, 6)
-        love.graphics.setColor(colors.text)
+        love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
         love.graphics.printf(label, px, py + 2, pw, 'center')
         -- remove
         local rx = x + w - 70; local ryb = upy
-        love.graphics.setColor(0.8, 0.3, 0.3, 1)
+        love.graphics.setColor(0.35,0.22,0.12,1.0)
+        love.graphics.rectangle('fill', rx-2, ryb+2, 60+4, btnH+4, 6, 6)
+        love.graphics.setColor(0.90, 0.35, 0.25, 1.0)
         love.graphics.rectangle('fill', rx, ryb, 60, btnH, 6, 6)
-        love.graphics.setColor(colors.uiPanelOutline)
+        love.graphics.setColor(0.78,0.54,0.34,1.0)
         love.graphics.rectangle('line', rx, ryb, 60, btnH, 6, 6)
-        love.graphics.setColor(1,1,1,1)
+        love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
         love.graphics.printf('Remove', rx, ryb + 2, 60, 'center')
 
         state.ui._queueButtons[#state.ui._queueButtons + 1] = {
@@ -454,19 +519,16 @@ function ui.drawMiniMap(state)
   -- Store for click handling
   state.ui._miniMap = { x = x, y = y, w = mapW, h = mapH, scale = scale }
 
-  -- Background panel (fancy)
-  love.graphics.setColor(0,0,0,0.25)
-  love.graphics.rectangle('fill', x - 6, y - 6, mapW + 16, mapH + 16, 10, 10)
-  love.graphics.setColor(0.16,0.23,0.16,0.96)
-  love.graphics.rectangle('fill', x - 8, y - 8, mapW + 16, mapH + 16, 10, 10)
-  love.graphics.setColor(1,1,1,0.05)
-  love.graphics.rectangle('fill', x - 6, y - 6, mapW + 12, math.max(10, (mapH + 12) * 0.18), 8, 8)
-  love.graphics.setColor(colors.uiPanelOutline)
-  love.graphics.rectangle('line', x - 8, y - 8, mapW + 16, mapH + 16, 10, 10)
+  -- Opaque grassy backdrop only (no outer frame)
+  love.graphics.setColor(0.15, 0.26, 0.14, 1.0)
+  love.graphics.rectangle('fill', x, y, mapW, mapH)
+  love.graphics.setColor(0.10, 0.18, 0.10, 0.9)
+  love.graphics.rectangle('line', x, y, mapW, mapH)
 
   -- Draw roads
   if state.game.roads then
-    love.graphics.setColor(0.5, 0.5, 0.52, 0.9)
+    -- mimic road tone on grass
+    love.graphics.setColor(0.16, 0.17, 0.18, 0.95)
     for _, rd in pairs(state.game.roads) do
       local rx = x + rd.tileX * scale
       local ry = y + rd.tileY * scale
@@ -475,12 +537,13 @@ function ui.drawMiniMap(state)
   end
 
   -- Draw trees
-  love.graphics.setColor(colors.treeFill)
+  -- trees: deeper green dots
+  love.graphics.setColor(0.20, 0.55, 0.22, 1.0)
   for _, t in ipairs(state.game.trees) do
     if t.alive then
       local tx = x + t.tileX * scale
       local ty = y + t.tileY * scale
-      love.graphics.rectangle('fill', tx + scale * 0.25, ty + scale * 0.25, math.max(1, scale * 0.5), math.max(1, scale * 0.5))
+      love.graphics.rectangle('fill', tx + scale * 0.2, ty + scale * 0.2, math.max(1, scale * 0.6), math.max(1, scale * 0.6))
     end
   end
 
@@ -488,9 +551,12 @@ function ui.drawMiniMap(state)
   for _, b in ipairs(state.game.buildings) do
     local bx = x + b.tileX * scale
     local by = y + b.tileY * scale
+    -- building base with shadow
+    love.graphics.setColor(0,0,0,0.25)
+    love.graphics.rectangle('fill', bx+1, by+1, scale, scale)
     love.graphics.setColor(b.color[1], b.color[2], b.color[3], 1)
     love.graphics.rectangle('fill', bx, by, scale, scale)
-    love.graphics.setColor(colors.outline)
+    love.graphics.setColor(1,1,1,0.12)
     love.graphics.rectangle('line', bx, by, scale, scale)
   end
 
@@ -522,16 +588,8 @@ function ui.drawHUD(state)
   local y = 16
   local w = 600
   local h = 100
-  -- fancy panel
-  -- HUD uses a muted teal variant for contrast
-  love.graphics.setColor(0,0,0,0.25)
-  love.graphics.rectangle('fill', x + 3, y + 4, w, h, 10, 10)
-  love.graphics.setColor(0.12,0.28,0.30,0.96)
-  love.graphics.rectangle('fill', x, y, w, h, 10, 10)
-  love.graphics.setColor(1,1,1,0.06)
-  love.graphics.rectangle('fill', x + 6, y + 6, w - 12, math.max(16, h * 0.25), 8, 8)
-  love.graphics.setColor(colors.uiPanelOutline)
-  love.graphics.rectangle('line', x, y, w, h, 10, 10)
+  -- parchment theme like objectives
+  drawParchmentPanel(x, y, w, h)
 
   love.graphics.setColor(colors.text)
   local baseWood = math.floor(state.game.resources.wood + 0.5)
@@ -542,6 +600,7 @@ function ui.drawHUD(state)
     end
   end
   local totalWood = baseWood + storedWood
+  love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
   love.graphics.print(string.format("Wood: %d", totalWood), x + 12, y + 12)
   local baseFood = math.floor((state.game.resources.food or 0) + 0.5)
   local storedFood = 0
@@ -552,15 +611,39 @@ function ui.drawHUD(state)
   end
   local totalFood = baseFood + storedFood
   local foodLabel = string.format("Food: %d", totalFood)
+  love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
   love.graphics.print(foodLabel, x + 12, y + 32)
   -- clickable bounds for food
   local fw = love.graphics.getFont():getWidth(foodLabel)
   state.ui._foodButton = { x = x + 10, y = y + 30, w = fw + 6, h = 18 }
 
+  -- Research progress (if any Research Center exists)
+  do
+    local hasResearch = false
+    for _, b in ipairs(state.game.buildings) do if b.type == 'research' then hasResearch = true break end end
+    if hasResearch then
+      local R = state.game.research or { points = 0, required = 60, progress = 0 }
+      local label = string.format("Research: %s %d/%d", R.target or 'Project', math.floor(R.progress or 0), R.required or 60)
+      love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+      love.graphics.print(label, x + 12, y + 52)
+      -- small progress bar
+      local bw, bh = 180, 8
+      local px, py = x + 12, y + 68
+      love.graphics.setColor(0, 0, 0, 0.35)
+      love.graphics.rectangle('fill', px, py, bw, bh, 4, 4)
+      local p = math.min(1, (R.progress or 0) / (R.required or 60))
+      love.graphics.setColor(0.30, 0.6, 0.95, 1)
+      love.graphics.rectangle('fill', px, py, bw * p, bh, 4, 4)
+      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.rectangle('line', px, py, bw, bh, 4, 4)
+    end
+  end
+
   local hours = math.floor(state.time.normalized * 24) % 24
   local minutes = math.floor((state.time.normalized * 24 - hours) * 60)
   local tnorm = state.time.normalized
   local isDay = (tnorm >= 0.25 and tnorm < 0.75)
+  love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
   love.graphics.print(string.format("Time: %02d:%02d (%s)", hours, minutes, isDay and "Day" or "Night"), x + 220, y + 12)
   love.graphics.print(string.format("Speed: %dx", state.time.speed or 1), x + 400, y + 12)
 
@@ -570,15 +653,18 @@ function ui.drawHUD(state)
   local s4x = s2x + btnW + 6; local s4y = s1y
   local s8x = s4x + btnW + 6; local s8y = s1y
   local function drawSpeed(xb, yb, label, active)
-    love.graphics.setColor(0,0,0,0.2)
-    love.graphics.rectangle('fill', xb + 2, yb + 2, btnW, btnH, 6, 6)
-    love.graphics.setColor(active and {0.20,0.46,0.50,1} or {0.14,0.34,0.36,1})
+    -- parchment mini button
+    love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
+    love.graphics.rectangle('fill', xb - 2, yb - 2, btnW + 4, btnH + 4, 6, 6)
+    love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
     love.graphics.rectangle('fill', xb, yb, btnW, btnH, 6, 6)
-    love.graphics.setColor(1,1,1,0.06)
-    love.graphics.rectangle('fill', xb + 3, yb + 3, btnW - 6, math.max(8, btnH * 0.5), 4, 4)
-    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
     love.graphics.rectangle('line', xb, yb, btnW, btnH, 6, 6)
-    love.graphics.setColor(colors.text)
+    if active then
+      love.graphics.setColor(0.20, 0.78, 0.30, 0.25)
+      love.graphics.rectangle('fill', xb+2, yb+2, btnW-4, btnH-4, 4, 4)
+    end
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
     love.graphics.printf(label, xb, yb + 4, btnW, 'center')
   end
   drawSpeed(s1x, s1y, '1x', (state.time.speed or 1) == 1)
@@ -596,11 +682,11 @@ function ui.drawHUD(state)
     local def = state.buildingDefs[state.ui.selectedBuildingType]
     if def and def.cost and def.cost.wood then
       local costStr = string.format("Cost: %d wood", def.cost.wood)
-      love.graphics.setColor(colors.text)
+      love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
       love.graphics.print(costStr, x + 12, y + 50)
     end
     if state.ui.selectedBuildingType == "lumberyard" then
-      love.graphics.setColor(colors.text)
+      love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
       love.graphics.print(string.format("Radius: %d tiles, Workers: %d", state.buildingDefs.lumberyard.radiusTiles, state.buildingDefs.lumberyard.numWorkers), x + 12, y + 68)
     end
   end
@@ -609,7 +695,7 @@ function ui.drawHUD(state)
 
   -- demolish hint
   if state.ui.isDemolishMode then
-    love.graphics.setColor(colors.text)
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
     love.graphics.print("Demolish Mode: click a building to remove (refund 50%)", x + 12, y + 60)
   end
 
@@ -751,11 +837,14 @@ function ui.drawMissionPanel(state)
       local btn = { x = x + 12, y = oy, w = w - 24, h = 30, id = opt.id, label = opt.label }
       local mx, my = love.mouse.getPosition()
       local hovered = utils.isPointInRect(mx, my, btn.x, btn.y, btn.w, btn.h)
-      if hovered then love.graphics.setColor(colors.buttonHover) else love.graphics.setColor(colors.button) end
+      love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
+      love.graphics.rectangle('fill', btn.x - 2, btn.y + 2, btn.w + 4, btn.h + 4, 8, 8)
+      love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
       love.graphics.rectangle('fill', btn.x, btn.y, btn.w, btn.h, 8, 8)
-      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
       love.graphics.rectangle('line', btn.x, btn.y, btn.w, btn.h, 8, 8)
-      love.graphics.setColor(colors.text)
+      if hovered then love.graphics.setColor(0.20, 0.78, 0.30, 0.18); love.graphics.rectangle('fill', btn.x+2, btn.y+2, btn.w-4, btn.h-4, 6, 6) end
+      love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
       love.graphics.printf(opt.label, btn.x, btn.y + 8, btn.w, 'center')
       table.insert(state.ui._missionSelectorButtons, btn)
       oy = oy + 36
@@ -782,77 +871,75 @@ function ui.drawMissionPanel(state)
   local x = love.graphics.getWidth() - w - 16
   local y = love.graphics.getHeight() - h - 16
 
-  -- Panel background styled like HUD (teal theme)
-  love.graphics.setColor(0,0,0,0.25)
-  love.graphics.rectangle('fill', x + 3, y + 4, w, h, 10, 10)
-  love.graphics.setColor(0.12,0.28,0.30,0.96)
-  love.graphics.rectangle('fill', x, y, w, h, 10, 10)
-  love.graphics.setColor(1,1,1,0.06)
-  love.graphics.rectangle('fill', x + 6, y + 6, w - 12, math.max(16, h * 0.18), 8, 8)
-  love.graphics.setColor(colors.uiPanelOutline)
-  love.graphics.rectangle('line', x, y, w, h, 10, 10)
+  -- Pixel-art parchment theme (panel frame)
+  local function drawPixelFrame(px, py, pw, ph)
+    love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
+    love.graphics.rectangle('fill', px - 4, py - 4, pw + 8, ph + 8)
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+    love.graphics.rectangle('line', px - 4, py - 4, pw + 8, ph + 8)
+    love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
+    love.graphics.rectangle('fill', px, py, pw, ph)
+    love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
+    love.graphics.rectangle('line', px, py, pw, ph)
+  end
+  drawPixelFrame(x, y, w, h)
 
-  -- Title with subtle shadow
-  love.graphics.setColor(0, 0, 0, 0.35)
-  love.graphics.print('Mission: ' .. (M.name or 'Unknown'), x + 13, y + 11)
-  love.graphics.setColor(colors.text)
-  love.graphics.print('Mission: ' .. (M.name or 'Unknown'), x + 12, y + 10)
+  -- Title in pixel style
+  love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+  love.graphics.print('MISSION: ' .. string.upper(M.name or 'Unknown'), x + 12, y + 10)
 
   local oy = y + 10 + titleH
   for _, o in ipairs(M.objectives or {}) do
-    -- check badge with halo
-    local cx = x + 18
-    local cy = oy + 10
-    local r = 7
-    local glow = (o.completePulse or 0)
+    -- draw scroll-like strip
+    local rowH = math.max(24, lineH)
+    local stripW = w - 24
+    local sx = x + 12
+    local sy = oy - 4
+    -- end caps
+    love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
+    love.graphics.rectangle('fill', sx, sy, 10, rowH + 8)
+    love.graphics.rectangle('fill', sx + stripW - 10, sy, 10, rowH + 8)
+    -- body
+    love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
+    love.graphics.rectangle('fill', sx + 10, sy, stripW - 20, rowH + 8)
+    love.graphics.setColor(0.62, 0.36, 0.20, 1.0)
+    love.graphics.rectangle('line', sx, sy, stripW, rowH + 8)
+
+    -- status badge (fancy smooth check)
     if o.done then
-      love.graphics.setColor(1, 1, 0.6, 0.25 * (glow > 0 and glow or 0.6))
-      love.graphics.circle('line', cx, cy, r + 4)
-      love.graphics.setColor(0.2, 0.8, 0.3, 0.95)
-      local scale = 1 + 0.2 * (glow or 0)
-      love.graphics.circle('fill', cx, cy, r * scale)
-      love.graphics.setColor(1, 1, 1, 1)
-      love.graphics.setLineWidth(2)
-      love.graphics.line(cx - 4, cy, cx - 1, cy + 3)
-      love.graphics.line(cx - 1, cy + 3, cx + 5, cy - 3)
-      love.graphics.setLineWidth(1)
-    else
-      love.graphics.setColor(0, 0, 0, 0.5)
-      love.graphics.circle('fill', cx, cy, r)
-      love.graphics.setColor(colors.uiPanelOutline)
-      love.graphics.circle('line', cx, cy, r)
+      drawFancyCheck(sx + 12, sy + 12, 8, o.completePulse)
     end
 
-    -- Wrapped text
-    love.graphics.setColor(colors.text)
-    local tx = x + 32
-    local tw = textW
-    local _, lines = font:getWrap(o.text or '', tw)
-    local textLines = math.max(1, #lines)
-    local textHeight = textLines * lineH
-    love.graphics.printf(o.text or '', tx, oy - 2, tw, 'left')
+    -- Wrapped text in uppercase for pixel feel
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+    local tx = sx + 22
+    local tw = stripW - 44
+    local text = (o.text or '')
+    love.graphics.printf(text, tx, sy + 6, tw, 'left')
 
-    -- Progress bar (fancy)
-    local blockBottom = oy - 2 + math.max(lineH, textHeight)
+    -- Progress bar (pixel)
+    local blockBottom = sy + rowH + 2
     if o.target and o.target > 1 then
-      local bw, bh = w - 44, 10
-      local bx, by = x + 32, blockBottom + 6
+      local bw, bh = stripW - 28, 8
+      local bx, by = sx + 14, blockBottom
       local p = math.min(1, (o.current or 0) / o.target)
-      love.graphics.setColor(0, 0, 0, 0.35)
-      love.graphics.rectangle('fill', bx, by, bw, bh, 4, 4)
-      love.graphics.setColor(0.25, 0.75, 0.35, 0.95)
-      love.graphics.rectangle('fill', bx, by, bw * p, bh, 4, 4)
-      if (o.pulse or 0) > 0 then
-        love.graphics.setColor(1, 1, 1, 0.2 * (o.pulse or 0))
-        love.graphics.rectangle('line', bx, by, bw, bh, 4, 4)
-      end
-      love.graphics.setColor(colors.uiPanelOutline)
-      love.graphics.rectangle('line', bx, by, bw, bh, 4, 4)
-      love.graphics.setColor(colors.text)
-      love.graphics.printf(string.format('%d / %d', math.floor(o.current or 0), o.target), bx, by - 10, bw, 'right')
-      oy = by + bh + 10
+      love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
+      love.graphics.rectangle('fill', bx - 1, by - 1, bw + 2, bh + 2)
+      love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
+      love.graphics.rectangle('fill', bx, by, bw, bh)
+      love.graphics.setColor(0.35, 0.75, 0.35, 1.0)
+      love.graphics.rectangle('fill', bx, by, bw * p, bh)
+      -- sparkle pixels at the head of the fill
+      local headX = bx + math.floor(bw * p)
+      love.graphics.setColor(0.95, 0.85, 0.4, 0.9)
+      love.graphics.rectangle('fill', headX, by - 2, 2, 2)
+      love.graphics.rectangle('fill', headX + 3, by + bh, 2, 2)
+      love.graphics.rectangle('fill', headX - 3, by + bh, 2, 2)
+      love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+      love.graphics.print(string.format('%d / %d', math.floor(o.current or 0), o.target), bx + bw - 56, by - 12)
+      oy = by + bh + 12
     else
-      oy = blockBottom + 10
+      oy = blockBottom + 12
     end
   end
   if M.completed then
@@ -879,16 +966,9 @@ function ui.drawPrompt(state)
       local remain = math.max(0, dur - t)
       alpha = math.min(1, remain / (dur * 0.5))
     end
-    -- Teal theme like HUD
-    love.graphics.setColor(0, 0, 0, 0.25 * alpha)
-    love.graphics.rectangle('fill', baseX + 3, y + 3, w, h, 10, 10)
-    love.graphics.setColor(0.12, 0.28, 0.30, 0.96 * alpha)
-    love.graphics.rectangle('fill', baseX, y, w, h, 10, 10)
-    love.graphics.setColor(1, 1, 1, 0.06 * alpha)
-    love.graphics.rectangle('fill', baseX + 6, y + 6, w - 12, math.max(12, h * 0.4), 8, 8)
-    love.graphics.setColor(colors.uiPanelOutline[1], colors.uiPanelOutline[2], colors.uiPanelOutline[3], 0.9 * alpha)
-    love.graphics.rectangle('line', baseX, y, w, h, 10, 10)
-    love.graphics.setColor(colors.text[1], colors.text[2], colors.text[3], alpha)
+    -- Parchment theme like objectives
+    drawParchmentPanel(baseX, y, w, h)
+    love.graphics.setColor(0.18, 0.11, 0.06, alpha)
     love.graphics.printf(p.text or '', baseX + 12, y + 16, w - 24, 'left')
     y = y + h + spacing
   end
@@ -899,7 +979,7 @@ function ui.drawPauseMenu(state)
   -- Do not show pause menu while Food Panel is open
   if state.ui.isFoodPanelOpen then return end
   local screenW, screenH = love.graphics.getDimensions()
-  love.graphics.setColor(0, 0, 0, 0.45)
+  love.graphics.setColor(0, 0, 0, 0.35)
   love.graphics.rectangle("fill", 0, 0, screenW, screenH)
 
   local contentHeight = #ui.pauseMenu.options * ui.pauseMenu.optionHeight + (#ui.pauseMenu.options - 1) * ui.pauseMenu.optionSpacing
@@ -908,10 +988,7 @@ function ui.drawPauseMenu(state)
   local panelX = (screenW - panelW) / 2
   local panelY = (screenH - panelH) / 2
 
-  love.graphics.setColor(colors.uiPanel)
-  love.graphics.rectangle("fill", panelX, panelY, panelW, panelH, 10, 10)
-  love.graphics.setColor(colors.uiPanelOutline)
-  love.graphics.rectangle("line", panelX, panelY, panelW, panelH, 10, 10)
+  drawParchmentPanel(panelX, panelY, panelW, panelH)
 
   local ox = panelX + 20
   local oy = panelY + 20
@@ -921,11 +998,22 @@ function ui.drawPauseMenu(state)
     local btnH = ui.pauseMenu.optionHeight
     local mx, my = love.mouse.getPosition()
     local hovered = utils.isPointInRect(mx, my, ox, btnY, btnW, btnH)
-    love.graphics.setColor(hovered and colors.buttonHover or colors.button)
-    love.graphics.rectangle("fill", ox, btnY, btnW, btnH, 8, 8)
-    love.graphics.setColor(colors.uiPanelOutline)
-    love.graphics.rectangle("line", ox, btnY, btnW, btnH, 8, 8)
-    love.graphics.setColor(colors.text)
+    if hovered then
+      love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
+      love.graphics.rectangle('fill', ox - 2, btnY + 2, btnW + 4, btnH + 4, 8, 8)
+      love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
+      love.graphics.rectangle('fill', ox, btnY, btnW, btnH, 8, 8)
+      love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
+      love.graphics.rectangle('line', ox, btnY, btnW, btnH, 8, 8)
+    else
+      love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
+      love.graphics.rectangle('fill', ox - 2, btnY + 2, btnW + 4, btnH + 4, 8, 8)
+      love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
+      love.graphics.rectangle('fill', ox, btnY, btnW, btnH, 8, 8)
+      love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
+      love.graphics.rectangle('line', ox, btnY, btnW, btnH, 8, 8)
+    end
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
     love.graphics.printf(opt.label, ox, btnY + 12, btnW, "center")
     opt._bounds = { x = ox, y = btnY, w = btnW, h = btnH }
   end
@@ -936,13 +1024,10 @@ function ui.drawPauseMenu(state)
     local w, h = 360, 240
     local x = (screenW - w) / 2
     local y = (screenH - h) / 2
-    love.graphics.setColor(0, 0, 0, 0.55)
+    love.graphics.setColor(0, 0, 0, 0.35)
     love.graphics.rectangle('fill', 0, 0, screenW, screenH)
-    love.graphics.setColor(colors.uiPanel)
-    love.graphics.rectangle('fill', x, y, w, h, 10, 10)
-    love.graphics.setColor(colors.uiPanelOutline)
-    love.graphics.rectangle('line', x, y, w, h, 10, 10)
-    love.graphics.setColor(colors.text)
+    drawParchmentPanel(x, y, w, h)
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
     love.graphics.printf(title, x, y + 14, w, 'center')
 
     local btns = {}
@@ -953,11 +1038,13 @@ function ui.drawPauseMenu(state)
       local exists = love.filesystem.getInfo(string.format('save_%d.json', slot)) ~= nil
       local mx, my = love.mouse.getPosition()
       local hovered = utils.isPointInRect(mx, my, bx, by, btnW, btnH)
-      love.graphics.setColor(hovered and colors.buttonHover or colors.button)
+      love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
+      love.graphics.rectangle('fill', bx - 2, by + 2, btnW + 4, btnH + 4, 8, 8)
+      love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
       love.graphics.rectangle('fill', bx, by, btnW, btnH, 8, 8)
-      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
       love.graphics.rectangle('line', bx, by, btnW, btnH, 8, 8)
-      love.graphics.setColor(colors.text)
+      love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
       local label = exists and string.format('Slot %d  (occupied)', slot) or string.format('Slot %d  (empty)', slot)
       love.graphics.printf(label, bx, by + 10, btnW, 'center')
       table.insert(btns, { x = bx, y = by, w = btnW, h = btnH, slot = slot })
@@ -965,11 +1052,13 @@ function ui.drawPauseMenu(state)
     end
     -- Cancel button
     local hovered = utils.isPointInRect(love.mouse.getX(), love.mouse.getY(), bx, y + h - 20 - btnH, btnW, btnH)
-    love.graphics.setColor(hovered and colors.buttonHover or colors.button)
+    love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
+    love.graphics.rectangle('fill', bx - 2, y + h - 20 - btnH + 2, btnW + 4, btnH + 4, 8, 8)
+    love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
     love.graphics.rectangle('fill', bx, y + h - 20 - btnH, btnW, btnH, 8, 8)
-    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
     love.graphics.rectangle('line', bx, y + h - 20 - btnH, btnW, btnH, 8, 8)
-    love.graphics.setColor(colors.text)
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
     love.graphics.printf('Cancel', bx, y + h - 20 - btnH + 10, btnW, 'center')
     table.insert(btns, { x = bx, y = y + h - 20 - btnH, w = btnW, h = btnH, cancel = true })
 
@@ -984,12 +1073,9 @@ function ui.drawSelectedPanel(state)
   if not sel then return end
   local mx, my = 16, love.graphics.getHeight() - 140
   local panelW, panelH = 380, 120
-  love.graphics.setColor(colors.uiPanel)
-  love.graphics.rectangle('fill', mx, my, panelW, panelH, 8, 8)
-  love.graphics.setColor(colors.uiPanelOutline)
-  love.graphics.rectangle('line', mx, my, panelW, panelH, 8, 8)
+  drawParchmentPanel(mx, my, panelW, panelH)
 
-  love.graphics.setColor(colors.text)
+  love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
   love.graphics.print(string.format('%s', sel.type), mx + 12, my + 12)
   love.graphics.print(string.format('Location: (%d,%d)', sel.tileX, sel.tileY), mx + 12, my + 30)
   if sel.construction and not sel.construction.complete and sel.construction.waitingForResources then
@@ -1003,23 +1089,27 @@ function ui.drawSelectedPanel(state)
       if q.id == sel.id then pos = i; prio = q.priority or 0; break end
     end
     if pos then
-      love.graphics.setColor(colors.text)
+      love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
       love.graphics.print(string.format('Queue: #%d / %d  (priority %d)', pos, total, prio or 0), mx + 12, my + 92)
       -- simple priority up/down buttons
       local btnW, btnH = 24, 20
       local upx, upy = mx + 250, my + 88
       local dnx, dny = upx + btnW + 6, upy
-      love.graphics.setColor(colors.button)
+      love.graphics.setColor(0.35,0.22,0.12,1.0)
+      love.graphics.rectangle('fill', upx-2, upy+2, btnW+4, btnH+4, 6, 6)
+      love.graphics.setColor(0.95,0.82,0.60,1.0)
       love.graphics.rectangle('fill', upx, upy, btnW, btnH, 6, 6)
-      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.setColor(0.78,0.54,0.34,1.0)
       love.graphics.rectangle('line', upx, upy, btnW, btnH, 6, 6)
-      love.graphics.setColor(colors.text)
+      love.graphics.setColor(0.18,0.11,0.06,1.0)
       love.graphics.printf('^', upx, upy + 2, btnW, 'center')
-      love.graphics.setColor(colors.button)
+      love.graphics.setColor(0.35,0.22,0.12,1.0)
+      love.graphics.rectangle('fill', dnx-2, dny+2, btnW+4, btnH+4, 6, 6)
+      love.graphics.setColor(0.95,0.82,0.60,1.0)
       love.graphics.rectangle('fill', dnx, dny, btnW, btnH, 6, 6)
-      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.setColor(0.78,0.54,0.34,1.0)
       love.graphics.rectangle('line', dnx, dny, btnW, btnH, 6, 6)
-      love.graphics.setColor(colors.text)
+      love.graphics.setColor(0.18,0.11,0.06,1.0)
       love.graphics.printf('v', dnx, dny + 2, btnW, 'center')
       sel._queueUpBtn = { x = upx, y = upy, w = btnW, h = btnH }
       sel._queueDownBtn = { x = dnx, y = dny, w = btnW, h = btnH }
@@ -1030,41 +1120,76 @@ function ui.drawSelectedPanel(state)
   sel._assignBtn, sel._unassignBtn = nil, nil
   if sel.type == 'lumberyard' or sel.type == 'builder' then
     local maxSlots = (sel.type == 'lumberyard') and (state.buildingDefs.lumberyard.numWorkers or 0) or (state.buildingDefs.builder.numWorkers or 0)
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
     love.graphics.print(string.format('Workers: %d / %d', sel.assigned or 0, maxSlots), mx + 12, my + 48)
     local btnW, btnH = 28, 24
     local remX, remY = mx + 180, my + 44
     local addX, addY = remX + btnW + 6, remY
-    love.graphics.setColor(colors.button)
+    love.graphics.setColor(0.35,0.22,0.12,1.0)
+    love.graphics.rectangle('fill', remX-2, remY+2, btnW+4, btnH+4, 6, 6)
+    love.graphics.setColor(0.95,0.82,0.60,1.0)
     love.graphics.rectangle('fill', remX, remY, btnW, btnH, 6, 6)
-    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.setColor(0.78,0.54,0.34,1.0)
     love.graphics.rectangle('line', remX, remY, btnW, btnH, 6, 6)
-    love.graphics.setColor(colors.text)
+    love.graphics.setColor(0.18,0.11,0.06,1.0)
     love.graphics.printf('-', remX, remY + 4, btnW, 'center')
-    love.graphics.setColor(colors.button)
+    love.graphics.setColor(0.35,0.22,0.12,1.0)
+    love.graphics.rectangle('fill', addX-2, addY+2, btnW+4, btnH+4, 6, 6)
+    love.graphics.setColor(0.95,0.82,0.60,1.0)
     love.graphics.rectangle('fill', addX, addY, btnW, btnH, 6, 6)
-    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.setColor(0.78,0.54,0.34,1.0)
     love.graphics.rectangle('line', addX, addY, btnW, btnH, 6, 6)
-    love.graphics.setColor(colors.text)
+    love.graphics.setColor(0.18,0.11,0.06,1.0)
     love.graphics.printf('+', addX, addY + 4, btnW, 'center')
     sel._unassignBtn = { x = remX, y = remY, w = btnW, h = btnH }
     sel._assignBtn = { x = addX, y = addY, w = btnW, h = btnH }
   elseif sel.type == 'farm' then
     local maxSlots = state.buildingDefs.farm.numWorkers or 0
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
     love.graphics.print(string.format('Workers: %d / %d', sel.assigned or 0, maxSlots), mx + 12, my + 48)
     local btnW, btnH = 28, 24
     local remX, remY = mx + 180, my + 44
     local addX, addY = remX + btnW + 6, remY
-    love.graphics.setColor(colors.button)
+    love.graphics.setColor(0.35,0.22,0.12,1.0)
+    love.graphics.rectangle('fill', remX-2, remY+2, btnW+4, btnH+4, 6, 6)
+    love.graphics.setColor(0.95,0.82,0.60,1.0)
     love.graphics.rectangle('fill', remX, remY, btnW, btnH, 6, 6)
-    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.setColor(0.78,0.54,0.34,1.0)
     love.graphics.rectangle('line', remX, remY, btnW, btnH, 6, 6)
-    love.graphics.setColor(colors.text)
+    love.graphics.setColor(0.18,0.11,0.06,1.0)
     love.graphics.printf('-', remX, remY + 4, btnW, 'center')
-    love.graphics.setColor(colors.button)
+    love.graphics.setColor(0.35,0.22,0.12,1.0)
+    love.graphics.rectangle('fill', addX-2, addY+2, btnW+4, btnH+4, 6, 6)
+    love.graphics.setColor(0.95,0.82,0.60,1.0)
     love.graphics.rectangle('fill', addX, addY, btnW, btnH, 6, 6)
-    love.graphics.setColor(colors.uiPanelOutline)
+    love.graphics.setColor(0.78,0.54,0.34,1.0)
     love.graphics.rectangle('line', addX, addY, btnW, btnH, 6, 6)
-    love.graphics.setColor(colors.text)
+    love.graphics.setColor(0.18,0.11,0.06,1.0)
+    love.graphics.printf('+', addX, addY + 4, btnW, 'center')
+    sel._unassignBtn = { x = remX, y = remY, w = btnW, h = btnH }
+    sel._assignBtn = { x = addX, y = addY, w = btnW, h = btnH }
+  elseif sel.type == 'research' then
+    local maxSlots = state.buildingDefs.research.numWorkers or 0
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+    love.graphics.print(string.format('Researchers: %d / %d', sel.assigned or 0, maxSlots), mx + 12, my + 48)
+    local btnW, btnH = 28, 24
+    local remX, remY = mx + 220, my + 44
+    local addX, addY = remX + btnW + 6, remY
+    love.graphics.setColor(0.35,0.22,0.12,1.0)
+    love.graphics.rectangle('fill', remX-2, remY+2, btnW+4, btnH+4, 6, 6)
+    love.graphics.setColor(0.95,0.82,0.60,1.0)
+    love.graphics.rectangle('fill', remX, remY, btnW, btnH, 6, 6)
+    love.graphics.setColor(0.78,0.54,0.34,1.0)
+    love.graphics.rectangle('line', remX, remY, btnW, btnH, 6, 6)
+    love.graphics.setColor(0.18,0.11,0.06,1.0)
+    love.graphics.printf('-', remX, remY + 4, btnW, 'center')
+    love.graphics.setColor(0.35,0.22,0.12,1.0)
+    love.graphics.rectangle('fill', addX-2, addY+2, btnW+4, btnH+4, 6, 6)
+    love.graphics.setColor(0.95,0.82,0.60,1.0)
+    love.graphics.rectangle('fill', addX, addY, btnW, btnH, 6, 6)
+    love.graphics.setColor(0.78,0.54,0.34,1.0)
+    love.graphics.rectangle('line', addX, addY, btnW, btnH, 6, 6)
+    love.graphics.setColor(0.18,0.11,0.06,1.0)
     love.graphics.printf('+', addX, addY + 4, btnW, 'center')
     sel._unassignBtn = { x = remX, y = remY, w = btnW, h = btnH }
     sel._assignBtn = { x = addX, y = addY, w = btnW, h = btnH }
@@ -1073,14 +1198,14 @@ function ui.drawSelectedPanel(state)
     local stock = (sel.storage and sel.storage.food) or 0
     local demand = pop
     local deficit = math.max(0, demand - stock)
-    love.graphics.setColor(colors.text)
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
     love.graphics.print(string.format('Stock: %d food', stock), mx + 12, my + 48)
     love.graphics.print(string.format("Tonight's demand: %d", demand), mx + 12, my + 68)
     if deficit > 0 then
-      love.graphics.setColor(0.95, 0.3, 0.3, 1)
+      love.graphics.setColor(0.72, 0.2, 0.16, 1)
       love.graphics.print(string.format('Deficit: %d (villagers will starve)', deficit), mx + 12, my + 88)
     else
-      love.graphics.setColor(0.3, 0.85, 0.4, 1)
+      love.graphics.setColor(0.20, 0.6, 0.25, 1)
       love.graphics.print('Ready for dinner', mx + 12, my + 88)
     end
   end
@@ -1088,11 +1213,13 @@ function ui.drawSelectedPanel(state)
   -- Demolish button
   local btnW, btnH = 100, 28
   local bx, by = mx + panelW - btnW - 12, my + panelH - btnH - 12
-  love.graphics.setColor(colors.button)
+  love.graphics.setColor(0.35,0.22,0.12,1.0)
+  love.graphics.rectangle('fill', bx-2, by+2, btnW+4, btnH+4, 6, 6)
+  love.graphics.setColor(0.95,0.82,0.60,1.0)
   love.graphics.rectangle('fill', bx, by, btnW, btnH, 6, 6)
-  love.graphics.setColor(colors.uiPanelOutline)
+  love.graphics.setColor(0.78,0.54,0.34,1.0)
   love.graphics.rectangle('line', bx, by, btnW, btnH, 6, 6)
-  love.graphics.setColor(colors.text)
+  love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
   love.graphics.printf('Demolish', bx, by + 6, btnW, 'center')
   sel._demolishBtn = { x = bx, y = by, w = btnW, h = btnH }
 end

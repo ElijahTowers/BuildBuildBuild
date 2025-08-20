@@ -7,13 +7,13 @@ constants.TILE_SIZE = 32
 
 constants.colors = {
   -- subtle grass palette for background and roads blending
-  background = { 0.15, 0.26, 0.12, 1.0 },
+  background = { 0.20, 0.34, 0.18, 1.0 },
   grid = { 0.22, 0.22, 0.25, 1.0 },
   uiPanel = { 0.15, 0.15, 0.18, 1.0 },
   uiPanelOutline = { 1, 1, 1, 0.08 },
   button = { 0.20, 0.20, 0.24, 1.0 },
   buttonHover = { 0.26, 0.26, 0.30, 1.0 },
-  text = { 0.92, 0.92, 0.95, 1.0 },
+  text = { 0.18, 0.11, 0.06, 1.0 },
   preview = { 1.0, 1.0, 1.0, 0.35 },
   invalid = { 0.9, 0.2, 0.2, 0.35 },
   outline = { 1.0, 1.0, 1.0, 0.3 },

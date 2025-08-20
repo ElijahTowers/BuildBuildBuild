@@ -134,6 +134,27 @@ function particles.spawnConfetti(gameParticles, px, py)
   end
 end
 
+-- Small footstep dust puff
+function particles.spawnFootstep(gameParticles, px, py)
+  for i = 1, 3 do
+    local angle = (math.random() - 0.5) * 0.8
+    local speed = 10 + math.random() * 20
+    local vx = math.cos(angle) * speed * 0.4
+    local vy = - (10 + math.random() * 10)
+    table.insert(gameParticles, {
+      x = px,
+      y = py,
+      vx = vx,
+      vy = vy,
+      life = 0.25 + math.random() * 0.15,
+      age = 0,
+      size = 1 + math.random() * 1.5,
+      color = { 0.7, 0.6, 0.45, 0.7 },
+      g = 40
+    })
+  end
+end
+
 function particles.update(gameParticles, dt)
   for i = #gameParticles, 1, -1 do
     local p = gameParticles[i]

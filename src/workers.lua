@@ -216,7 +216,7 @@ end
 
 -- Auto-assign one worker to a worker building if there's free population and a free slot
 local function autoAssignOneIfPossible(state, b)
-  if not b or (b.type ~= 'lumberyard' and b.type ~= 'builder' and b.type ~= 'farm') then return end
+  if not b or (b.type ~= 'lumberyard' and b.type ~= 'builder' and b.type ~= 'farm' and b.type ~= 'research') then return end
   local def = state.buildingDefs[b.type]
   local free = (state.game.population.total or 0) - (state.game.population.assigned or 0)
   if free <= 0 then return end
@@ -318,6 +318,21 @@ function workers.spawnAssignedWorker(state, b)
       targetPlot = nil,
       plotPx = nil,
       plotPy = nil
+    })
+    return
+  elseif b.type == 'research' then
+    local home = findNearestHouse(state, b.tileX, b.tileY)
+    local TILE = constants.TILE_SIZE
+    local startX = (home and (home.tileX * TILE + TILE / 2)) or (b.tileX * TILE + TILE / 2)
+    local startY = (home and (home.tileY * TILE + TILE / 2)) or (b.tileY * TILE + TILE / 2)
+    local v = createVillager(state, home, b, startX, startY)
+    b.workers = b.workers or {}
+    table.insert(b.workers, {
+      x = startX,
+      y = startY,
+      state = 'toWork',
+      homeBuilding = home,
+      villagerRef = v
     })
     return
   end
@@ -483,6 +498,7 @@ end
 local function drawVillagers(state)
   if not state.ui.showWorldVillagerDots then return end
   local TILE = constants.TILE_SIZE
+  local t = love.timer.getTime()
   for _, v in ipairs(state.game.villagers) do
     -- Hide villager when visually "inside" their home or workplace
     local hide = false
@@ -498,10 +514,22 @@ local function drawVillagers(state)
       if dx * dx + dy * dy <= (TILE * 0.38) * (TILE * 0.38) then hide = true end
     end
     if hide then goto continue end
+    local bob = math.sin((t + (v.x + v.y) * 0.01) * 6.0) * 1.0
+    love.graphics.setColor(0, 0, 0, 0.2)
+    love.graphics.ellipse('fill', v.x, v.y + 5, 6, 3)
     love.graphics.setColor(colors.worker)
-    love.graphics.rectangle('fill', v.x - 4, v.y - 4, 8, 8, 2, 2)
+    love.graphics.rectangle('fill', v.x - 4, v.y - 6 + bob, 8, 12, 3, 3)
     love.graphics.setColor(colors.outline)
-    love.graphics.rectangle('line', v.x - 4, v.y - 4, 8, 8, 2, 2)
+    love.graphics.rectangle('line', v.x - 4, v.y - 6 + bob, 8, 12, 3, 3)
+    love.graphics.setColor(0,0,0,0.85)
+    love.graphics.rectangle('fill', v.x - 2, v.y - 2 + bob, 1, 1)
+    love.graphics.rectangle('fill', v.x + 1, v.y - 2 + bob, 1, 1)
+    love.graphics.setColor(0.35, 0.22, 0.12, 1)
+    love.graphics.rectangle('fill', v.x - 2, v.y + 1 + bob, 4, 1)
+    local swing = math.sin((t + (v.x + v.y) * 0.01) * 10.0) * 2
+    love.graphics.setColor(colors.worker)
+    love.graphics.rectangle('fill', v.x - 6, v.y - 2 + bob + swing * 0.2, 2, 6, 1, 1)
+    love.graphics.rectangle('fill', v.x + 4, v.y - 2 + bob - swing * 0.2, 2, 6, 1, 1)
     ::continue::
   end
 end
@@ -1133,6 +1161,52 @@ function workers.update(state, dt)
           ::farm_continue::
         end
       end
+    elseif b.type == 'research' then
+      ensureWorkerCount(state, b)
+      if b.workers and b.construction and b.construction.complete then
+        local def = state.buildingDefs.research
+        local TILE = constants.TILE_SIZE
+        for _, w in ipairs(b.workers) do
+          local speed = 110
+          if state.time.mealtimeActive and not w._ateToday then
+            local m = findNearestMarket(state, math.floor(w.x / TILE), math.floor(w.y / TILE))
+            if m then
+              local mx = m.tileX * TILE + TILE / 2
+              local my = m.tileY * TILE + TILE / 2
+              if goTo(w, mx, my, speed, dt, state) then
+                particles.spawnFoodPickup(state.game.particles, mx, my)
+                w._ateToday = true
+              end
+              goto research_update_continue
+            end
+          end
+          if not isDay then
+            local home = w.homeBuilding
+            if home then
+              local hx = home.tileX * TILE + TILE / 2
+              local hy = home.tileY * TILE + TILE / 2
+              goTo(w, hx, hy, speed, dt, state)
+            end
+            goto research_update_continue
+          end
+          local cx = b.tileX * TILE + TILE / 2
+          local cy = b.tileY * TILE + TILE / 2
+          if goTo(w, cx, cy, speed, dt, state) then
+            local rate = (def.researchRate or 1.0)
+            state.game.research.points = (state.game.research.points or 0) + rate * dt
+            state.game.research.progress = math.min((state.game.research.points or 0), state.game.research.required or 60)
+            if not state.game.research.farmExpansionUnlocked and state.game.research.progress >= (state.game.research.required or 60) then
+              state.game.research.farmExpansionUnlocked = true
+              state.buildingDefs.farm.numWorkers = (state.buildingDefs.farm.numWorkers or 2) + 2
+              state.ui.promptText = "Research unlocked: Farm Expansion (+2 workers, larger fields)"
+              state.ui.promptT = 0
+              state.ui.promptDuration = 4
+              state.ui.promptSticky = false
+            end
+          end
+          ::research_update_continue::
+        end
+      end
     end
   end
 end
@@ -1157,13 +1231,44 @@ function workers.draw(state)
         end
         love.graphics.setColor(0, 0, 0, 0.25)
         love.graphics.ellipse('fill', w.x, w.y + 6, 7, 3)
+        -- occasional footstep puffs while moving
+        if (w.vx and w.vy) and (math.abs(w.vx) + math.abs(w.vy) > 0.1) then
+          if (w._stepT or 0) <= 0 then
+            particles.spawnFootstep(state.game.particles, w.x, w.y + 6)
+            w._stepT = 0.18 + (math.random() * 0.1)
+          else
+            w._stepT = w._stepT - (state and state.time and 1/60 or 0.016)
+          end
+        end
+        -- lively body: rounded capsule with face and bobbing
+        local t = love.timer.getTime()
+        local bob = math.sin((t + (w.x + w.y) * 0.01) * 6.0) * 1.2
+        -- add hats per job
         love.graphics.setColor(colors.worker)
-        love.graphics.rectangle("fill", w.x - 5, w.y - 5, 10, 10, 2, 2)
+        love.graphics.rectangle('fill', w.x - 4, w.y - 6 + bob, 8, 12, 3, 3)
+        -- hat (lumberjack: green cap)
+        love.graphics.setColor(0.20, 0.55, 0.22, 1)
+        love.graphics.rectangle('fill', w.x - 4, w.y - 8 + bob, 8, 3, 2, 2)
         love.graphics.setColor(colors.outline)
-        love.graphics.rectangle("line", w.x - 5, w.y - 5, 10, 10, 2, 2)
+        love.graphics.rectangle('line', w.x - 4, w.y - 6 + bob, 8, 12, 3, 3)
+        -- face
+        love.graphics.setColor(0,0,0,0.85)
+        love.graphics.rectangle('fill', w.x - 2, w.y - 2 + bob, 1, 1)
+        love.graphics.rectangle('fill', w.x + 1, w.y - 2 + bob, 1, 1)
+        love.graphics.setColor(0.35, 0.22, 0.12, 1)
+        love.graphics.rectangle('fill', w.x - 2, w.y + 1 + bob, 4, 1)
+        -- arm swing
+        local swing = math.sin((t + (w.x + w.y) * 0.01) * 10.0) * 2
+        love.graphics.setColor(colors.worker)
+        love.graphics.rectangle('fill', w.x - 6, w.y - 2 + bob + swing * 0.2, 2, 6, 1, 1)
+        love.graphics.rectangle('fill', w.x + 4, w.y - 2 + bob - swing * 0.2, 2, 6, 1, 1)
         if w.carryWood then
           love.graphics.setColor(colors.workerCarry)
-          love.graphics.rectangle("fill", w.x - 3, w.y - 12, 6, 4)
+          love.graphics.rectangle('fill', w.x - 4, w.y - 14 + bob, 8, 5, 1, 1)
+          -- sparkle on lift occasionally when building
+          if w.state == 'build' and math.random() < 0.06 then
+            particles.spawnDustBurst(state.game.particles, w.x, w.y)
+          end
         end
         if w.state == "chopping" and w.targetTileX and w.targetTileY then
           local t = state.game.trees[w.targetTreeIndex]
@@ -1203,15 +1308,40 @@ function workers.draw(state)
           love.graphics.setColor(1, 1, 1, 0.15)
           love.graphics.rectangle('fill', w.x - 6, w.y + 7, 12, 2, 1, 1)
         end
+        if (w.vx and w.vy) and (math.abs(w.vx) + math.abs(w.vy) > 0.1) then
+          if (w._stepT or 0) <= 0 then
+            particles.spawnFootstep(state.game.particles, w.x, w.y + 6)
+            w._stepT = 0.18 + (math.random() * 0.1)
+          else
+            w._stepT = w._stepT - (state and state.time and 1/60 or 0.016)
+          end
+        end
         love.graphics.setColor(0, 0, 0, 0.25)
         love.graphics.ellipse('fill', w.x, w.y + 6, 7, 3)
+        local t = love.timer.getTime()
+        local bob = math.sin((t + (w.x + w.y) * 0.01) * 6.0) * 1.2
         love.graphics.setColor(colors.worker)
-        love.graphics.rectangle("fill", w.x - 5, w.y - 5, 10, 10, 2, 2)
+        love.graphics.rectangle('fill', w.x - 4, w.y - 6 + bob, 8, 12, 3, 3)
+        -- hat (builder: yellow hardhat)
+        love.graphics.setColor(0.95, 0.85, 0.25, 1)
+        love.graphics.rectangle('fill', w.x - 4, w.y - 8 + bob, 8, 3, 2, 2)
         love.graphics.setColor(colors.outline)
-        love.graphics.rectangle("line", w.x - 5, w.y - 5, 10, 10, 2, 2)
+        love.graphics.rectangle('line', w.x - 4, w.y - 6 + bob, 8, 12, 3, 3)
+        love.graphics.setColor(0,0,0,0.85)
+        love.graphics.rectangle('fill', w.x - 2, w.y - 2 + bob, 1, 1)
+        love.graphics.rectangle('fill', w.x + 1, w.y - 2 + bob, 1, 1)
+        love.graphics.setColor(0.35, 0.22, 0.12, 1)
+        love.graphics.rectangle('fill', w.x - 2, w.y + 1 + bob, 4, 1)
+        local swing = math.sin((t + (w.x + w.y) * 0.01) * 10.0) * 2
+        love.graphics.setColor(colors.worker)
+        love.graphics.rectangle('fill', w.x - 6, w.y - 2 + bob + swing * 0.2, 2, 6, 1, 1)
+        love.graphics.rectangle('fill', w.x + 4, w.y - 2 + bob - swing * 0.2, 2, 6, 1, 1)
         if w.carryWood then
           love.graphics.setColor(colors.workerCarry)
-          love.graphics.rectangle('fill', w.x - 3, w.y - 12, 6, 4)
+          love.graphics.rectangle('fill', w.x - 4, w.y - 14 + bob, 8, 5, 1, 1)
+          if w.state == 'build' and math.random() < 0.06 then
+            particles.spawnDustBurst(state.game.particles, w.x, w.y)
+          end
         end
         ::builder_draw_continue::
       end
@@ -1228,15 +1358,38 @@ function workers.draw(state)
           love.graphics.setColor(1, 1, 1, 0.15)
           love.graphics.rectangle('fill', w.x - 6, w.y + 7, 12, 2, 1, 1)
         end
+        if (w.vx and w.vy) and (math.abs(w.vx) + math.abs(w.vy) > 0.1) then
+          if (w._stepT or 0) <= 0 then
+            particles.spawnFootstep(state.game.particles, w.x, w.y + 6)
+            w._stepT = 0.18 + (math.random() * 0.1)
+          else
+            w._stepT = w._stepT - (state and state.time and 1/60 or 0.016)
+          end
+        end
         love.graphics.setColor(0, 0, 0, 0.25)
         love.graphics.ellipse('fill', w.x, w.y + 6, 7, 3)
+        local t = love.timer.getTime()
+        local bob = math.sin((t + (w.x + w.y) * 0.01) * 6.0) * 1.2
         love.graphics.setColor(colors.worker)
-        love.graphics.rectangle("fill", w.x - 5, w.y - 5, 10, 10, 2, 2)
+        love.graphics.rectangle('fill', w.x - 4, w.y - 6 + bob, 8, 12, 3, 3)
+        -- hat (farmer: straw hat)
+        love.graphics.setColor(0.80, 0.65, 0.25, 1)
+        love.graphics.rectangle('fill', w.x - 5, w.y - 8 + bob, 10, 2, 2, 2)
+        love.graphics.rectangle('fill', w.x - 3, w.y - 10 + bob, 6, 2, 2, 2)
         love.graphics.setColor(colors.outline)
-        love.graphics.rectangle("line", w.x - 5, w.y - 5, 10, 10, 2, 2)
+        love.graphics.rectangle('line', w.x - 4, w.y - 6 + bob, 8, 12, 3, 3)
+        love.graphics.setColor(0,0,0,0.85)
+        love.graphics.rectangle('fill', w.x - 2, w.y - 2 + bob, 1, 1)
+        love.graphics.rectangle('fill', w.x + 1, w.y - 2 + bob, 1, 1)
+        love.graphics.setColor(0.35, 0.22, 0.12, 1)
+        love.graphics.rectangle('fill', w.x - 2, w.y + 1 + bob, 4, 1)
+        local swing = math.sin((t + (w.x + w.y) * 0.01) * 10.0) * 2
+        love.graphics.setColor(colors.worker)
+        love.graphics.rectangle('fill', w.x - 6, w.y - 2 + bob + swing * 0.2, 2, 6, 1, 1)
+        love.graphics.rectangle('fill', w.x + 4, w.y - 2 + bob - swing * 0.2, 2, 6, 1, 1)
         if w.carryFood then
           love.graphics.setColor(0.95, 0.85, 0.3, 1)
-          love.graphics.rectangle('fill', w.x - 3, w.y - 12, 6, 4)
+          love.graphics.rectangle('fill', w.x - 4, w.y - 14 + bob, 8, 5, 1, 1)
         end
         if w.state == 'harvesting' then
           -- simple hoeing motion over a surrounding plot
@@ -1251,16 +1404,48 @@ function workers.draw(state)
         end
         ::farm_draw_continue::
       end
+    elseif b.type == 'research' and b.workers then
+      for _, w in ipairs(b.workers) do
+        local centerX = b.tileX * TILE_SIZE + TILE_SIZE / 2
+        local centerY = b.tileY * TILE_SIZE + TILE_SIZE / 2
+        local dx, dy = (w.x - centerX), (w.y - centerY)
+        local insideBuilding = (dx * dx + dy * dy) <= (TILE_SIZE * 0.38) * (TILE_SIZE * 0.38)
+        if insideBuilding then goto research_draw_continue end
+        love.graphics.setColor(0, 0, 0, 0.25)
+        love.graphics.ellipse('fill', w.x, w.y + 6, 7, 3)
+        local t = love.timer.getTime()
+        local bob = math.sin((t + (w.x + w.y) * 0.01) * 6.0) * 1.2
+        love.graphics.setColor(colors.worker)
+        love.graphics.rectangle('fill', w.x - 4, w.y - 6 + bob, 8, 12, 3, 3)
+        -- hat (research: blue cap)
+        love.graphics.setColor(0.30, 0.50, 0.95, 1)
+        love.graphics.rectangle('fill', w.x - 4, w.y - 8 + bob, 8, 3, 2, 2)
+        love.graphics.setColor(colors.outline)
+        love.graphics.rectangle('line', w.x - 4, w.y - 6 + bob, 8, 12, 3, 3)
+        love.graphics.setColor(0,0,0,0.85)
+        love.graphics.rectangle('fill', w.x - 2, w.y - 2 + bob, 1, 1)
+        love.graphics.rectangle('fill', w.x + 1, w.y - 2 + bob, 1, 1)
+        love.graphics.setColor(0.35, 0.22, 0.12, 1)
+        love.graphics.rectangle('fill', w.x - 2, w.y + 1 + bob, 4, 1)
+        ::research_draw_continue::
+      end
     end
   end
   drawVillagers(state)
   -- draw visual residents as small dots if enabled
   if state.ui.showWorldVillagerDots and state.game.residents then
     for _, r in ipairs(state.game.residents) do
-      love.graphics.setColor(colors.worker[1], colors.worker[2], colors.worker[3], 0.8)
-      love.graphics.rectangle('fill', r.x - 3, r.y - 3, 6, 6, 2, 2)
+      local t = love.timer.getTime()
+      local bob = math.sin((t + (r.x + r.y) * 0.01) * 6.0) * 1.0
+      love.graphics.setColor(0, 0, 0, 0.18)
+      love.graphics.ellipse('fill', r.x, r.y + 5, 5, 2)
+      love.graphics.setColor(colors.worker[1], colors.worker[2], colors.worker[3], 0.9)
+      love.graphics.rectangle('fill', r.x - 3, r.y - 5 + bob, 6, 10, 2, 2)
       love.graphics.setColor(colors.outline)
-      love.graphics.rectangle('line', r.x - 3, r.y - 3, 6, 6, 2, 2)
+      love.graphics.rectangle('line', r.x - 3, r.y - 5 + bob, 6, 10, 2, 2)
+      -- tiny head stripe
+      love.graphics.setColor(0.35, 0.22, 0.12, 1)
+      love.graphics.rectangle('fill', r.x - 2, r.y - 1 + bob, 4, 1)
     end
   end
 end

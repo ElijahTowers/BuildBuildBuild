@@ -497,15 +497,15 @@ function love.draw()
       for tx = startX, endX do
         local px = tx * TILE
         local py = ty * TILE
-        -- base patch
-        love.graphics.setColor(0.18, 0.32, 0.16, 1.0)
+        -- base patch (lighter)
+        love.graphics.setColor(0.22, 0.40, 0.22, 1.0)
         love.graphics.rectangle('fill', px, py, TILE, TILE)
         -- blades overlay with slight noise (hash)
         local n = math.abs(((tx * 73856093 + ty * 19349663) % 5))
-        local a = 0.08 + (n * 0.02)
-        love.graphics.setColor(0.25, 0.42, 0.20, a)
+        local a = 0.07 + (n * 0.02)
+        love.graphics.setColor(0.30, 0.50, 0.26, a)
         love.graphics.rectangle('fill', px + 2, py + 2, TILE - 4, TILE - 4, 6, 6)
-        love.graphics.setColor(0.22, 0.38, 0.18, a * 0.9)
+        love.graphics.setColor(0.26, 0.46, 0.22, a * 0.9)
         love.graphics.rectangle('line', px + 3, py + 3, TILE - 6, TILE - 6, 6, 6)
       end
     end
@@ -580,11 +580,13 @@ function love.draw()
     if tip and tip.text then
       local tw = love.graphics.getFont():getWidth(tip.text) + 12
       local th = 22
-      love.graphics.setColor(0, 0, 0, 0.75)
+      love.graphics.setColor(0.35, 0.22, 0.12, 0.9)
+      love.graphics.rectangle('fill', tip.sx - 2, tip.sy + 2, tw + 4, th + 4, 6, 6)
+      love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
       love.graphics.rectangle('fill', tip.sx, tip.sy, tw, th, 6, 6)
-      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
       love.graphics.rectangle('line', tip.sx, tip.sy, tw, th, 6, 6)
-      love.graphics.setColor(colors.text)
+      love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
       love.graphics.print(tip.text, tip.sx + 6, tip.sy + 4)
     end
   end
@@ -1142,22 +1144,23 @@ function love.keypressed(key)
     return
   end
   if key == 'escape' then
-    if state.ui.isBuildMenuOpen then
-      state.ui.isBuildMenuOpen = false
-    elseif state.ui.isFoodPanelOpen then
-      state.ui.isFoodPanelOpen = false
+    -- Close any open overlays/panels/modes without opening the pause menu
+    local closed = false
+    if state.ui.isBuildMenuOpen then state.ui.isBuildMenuOpen = false; closed = true end
+    if state.ui.isFoodPanelOpen then state.ui.isFoodPanelOpen = false; closed = true end
+    if state.ui.isMissionSelectorOpen then state.ui.isMissionSelectorOpen = false; closed = true end
+    if state.ui.isBuildQueueOpen then state.ui.isBuildQueueOpen = false; closed = true end
+    if state.ui.isVillagersPanelOpen then state.ui.isVillagersPanelOpen = false; closed = true end
+    if state.ui._saveLoadMode then state.ui._saveLoadMode = nil; closed = true end
+    if state.ui.isPlacingBuilding then state.ui.isPlacingBuilding = false; state.ui.selectedBuildingType = nil; closed = true end
+    if state.ui.isPlacingRoad then state.ui.isPlacingRoad = false; state.ui.roadStartTile = nil; closed = true end
+    if state.ui.isDemolishMode then state.ui.isDemolishMode = false; closed = true end
+    if closed then
       state.ui.isPaused = false
-    else
-      if state.ui.isPlacingBuilding then
-        state.ui.isPlacingBuilding = false
-        state.ui.selectedBuildingType = nil
-      elseif state.ui.isPlacingRoad then
-        state.ui.isPlacingRoad = false
-        state.ui.roadStartTile = nil
-      else
-        state.ui.isPaused = not state.ui.isPaused
-      end
+      return
     end
+    -- Nothing to close: toggle pause menu
+    state.ui.isPaused = not state.ui.isPaused
   elseif key == 'c' then
     state.ui.isBuildMenuOpen = not state.ui.isBuildMenuOpen
     if state.ui.isBuildMenuOpen then
@@ -1244,7 +1247,7 @@ function love.keypressed(key)
 
   -- Build menu quick shortcuts
   if state.ui.isBuildMenuOpen then
-    local map = { h = 'house', l = 'lumberyard', w = 'warehouse', b = 'builder', f = 'farm' }
+    local map = { h = 'house', l = 'lumberyard', w = 'warehouse', b = 'builder', f = 'farm', r = 'research' }
     local sel = map[key]
     if sel then
       state.ui.selectedBuildingType = sel

@@ -116,6 +116,7 @@ function buildings.place(state, buildingType, tileX, tileY)
   elseif buildingType == 'builder' then color = { 0.7, 0.5, 0.3, 1.0 }
   elseif buildingType == 'market' then color = { 0.85, 0.5, 0.25, 1.0 }
   elseif buildingType == 'farm' then color = { 0.7, 0.8, 0.3, 1.0 }
+  elseif buildingType == 'research' then color = { 0.5, 0.6, 0.9, 1.0 }
   end
   local newB = {
     id = (state.game._nextBuildingId or 1),
@@ -270,12 +271,20 @@ function buildings.assignOne(state, b)
     state.game.population.assigned = (state.game.population.assigned or 0) + 1
     workers.spawnAssignedWorker(state, b)
     return true
+  elseif b.type == 'research' then
+    local free = (state.game.population.total or 0) - (state.game.population.assigned or 0)
+    local maxSlots = state.buildingDefs.research.numWorkers or 0
+    if free <= 0 or (b.assigned or 0) >= maxSlots then return false end
+    b.assigned = (b.assigned or 0) + 1
+    state.game.population.assigned = (state.game.population.assigned or 0) + 1
+    workers.spawnAssignedWorker(state, b)
+    return true
   end
   return false
 end
 
 function buildings.unassignOne(state, b)
-  if b.type ~= 'lumberyard' and b.type ~= 'builder' and b.type ~= 'farm' then return false end
+  if b.type ~= 'lumberyard' and b.type ~= 'builder' and b.type ~= 'farm' and b.type ~= 'research' then return false end
   if (b.assigned or 0) <= 0 then return false end
   b.assigned = b.assigned - 1
   state.game.population.assigned = state.game.population.assigned - 1
@@ -388,24 +397,69 @@ function buildings.drawAll(state)
       end
     end
 
-    -- draw icon if available
-    local innerPad = 0
-    drawBuildingIcon(b.type, TILE_SIZE, innerPad)
+    -- draw icon if available (except farm: draw procedural windmill + crops)
+    if b.type ~= 'farm' then
+      local innerPad = 0
+      drawBuildingIcon(b.type, TILE_SIZE, innerPad)
+    end
     if b._flashT and b._flashT > 0 then
       love.graphics.setColor(1, 1, 0.6, 0.35 * (b._flashT / 0.5))
       love.graphics.rectangle('line', -TILE_SIZE/2 - 2, -TILE_SIZE/2 - 2, TILE_SIZE + 4, TILE_SIZE + 4, 8, 8)
       love.graphics.setColor(1, 1, 1, 1)
     end
 
-    -- Construction progress bar
+    -- Construction visuals
     if b.construction and not b.construction.complete then
       local p = (b.construction.progress or 0) / (b.construction.required or 1)
-      love.graphics.setColor(0, 0, 0, 0.5)
-      love.graphics.rectangle('fill', -TILE_SIZE / 2, TILE_SIZE * 0.45, TILE_SIZE, 6, 3, 3)
-      love.graphics.setColor(0.2, 0.8, 0.3, 1)
-      love.graphics.rectangle('fill', -TILE_SIZE / 2, TILE_SIZE * 0.45, TILE_SIZE * p, 6, 3, 3)
+      -- rising scaffolding frame
+      do
+        local h = TILE_SIZE * (0.25 + 0.6 * p)
+        love.graphics.setColor(0.35, 0.22, 0.12, 0.9)
+        love.graphics.rectangle('fill', -TILE_SIZE/2 + 3, TILE_SIZE/2 - h, 4, h)
+        love.graphics.rectangle('fill', TILE_SIZE/2 - 7, TILE_SIZE/2 - h, 4, h)
+        for i=0,3 do
+          local y = TILE_SIZE/2 - h + i * (h/3)
+          love.graphics.rectangle('fill', -TILE_SIZE/2 + 3, y, TILE_SIZE - 14, 3)
+        end
+      end
+      -- flickering hammer spark if a builder is assigned here
+      if b._claimedBy then
+        local t = (b.anim and b.anim.t or 0)
+        local flicker = (math.sin(t * 30) > 0.85)
+        if flicker then
+          love.graphics.setColor(1, 0.9, 0.3, 0.9)
+          love.graphics.circle('fill', 0, 0, 2)
+        end
+      end
+      -- progress bar (styled)
+      love.graphics.setColor(0, 0, 0, 0.45)
+      love.graphics.rectangle('fill', -TILE_SIZE / 2, TILE_SIZE * 0.48, TILE_SIZE, 6, 3, 3)
+      love.graphics.setColor(0.20, 0.78, 0.30, 1)
+      love.graphics.rectangle('fill', -TILE_SIZE / 2, TILE_SIZE * 0.48, TILE_SIZE * p, 6, 3, 3)
       love.graphics.setColor(colors.outline)
-      love.graphics.rectangle('line', -TILE_SIZE / 2, TILE_SIZE * 0.45, TILE_SIZE, 6, 3, 3)
+      love.graphics.rectangle('line', -TILE_SIZE / 2, TILE_SIZE * 0.48, TILE_SIZE, 6, 3, 3)
+      -- dust motes rising lightly
+      if (b._dustT or 0) <= 0 then
+        particles.spawnDustBurst(state.game.particles, cx, cy + TILE_SIZE * 0.25)
+        b._dustT = 0.8 + math.random() * 0.6
+      else
+        b._dustT = b._dustT - (state and state.time and 1/60 or 0.016)
+      end
+    end
+
+    -- Auto-assign one worker to research when it completes (if available)
+    if b.type == 'research' and b.construction and b.construction.complete and not b._autoAssignedOnce then
+      b._autoAssignedOnce = true
+      local free = (state.game.population.total or 0) - (state.game.population.assigned or 0)
+      if free > 0 then
+        local ok = require('src.buildings').assignOne(state, b)
+        if ok then
+          state.ui.promptText = "A worker has been assigned to Research Center"
+          state.ui.promptT = 0
+          state.ui.promptDuration = 2
+          state.ui.promptSticky = false
+        end
+      end
     end
 
     -- Fancy exclamation indicator when workers have nothing to do
@@ -458,16 +512,77 @@ function buildings.drawAll(state)
       end
     end
 
-    -- Farm crops around
-    if b.type == 'farm' and b.farm and b.farm.plots then
-      for _, p in ipairs(b.farm.plots) do
-        local ox = p.dx * TILE_SIZE
-        local oy = p.dy * TILE_SIZE
-        love.graphics.setColor(0.35, 0.6, 0.2, 1)
-        love.graphics.rectangle('fill', -TILE_SIZE / 2 + ox + 6, -TILE_SIZE / 2 + oy + 6, TILE_SIZE - 12, TILE_SIZE - 12, 4, 4)
-        love.graphics.setColor(0.25, 0.45, 0.15, 1)
-        love.graphics.rectangle('line', -TILE_SIZE / 2 + ox + 6, -TILE_SIZE / 2 + oy + 6, TILE_SIZE - 12, TILE_SIZE - 12, 4, 4)
+    -- Farm: procedural windmill + crops
+    if b.type == 'farm' then
+      local t = (b.anim and b.anim.t) or 0
+      -- ground patch only on the center tile
+      love.graphics.setColor(0.30, 0.55, 0.25, 1)
+      love.graphics.rectangle('fill', -TILE_SIZE/2 + 4, -TILE_SIZE/2 + 4, TILE_SIZE - 8, TILE_SIZE - 8, 6, 6)
+      love.graphics.setColor(0.22, 0.45, 0.18, 1)
+      love.graphics.rectangle('line', -TILE_SIZE/2 + 4, -TILE_SIZE/2 + 4, TILE_SIZE - 8, TILE_SIZE - 8, 6, 6)
+      -- windmill tower
+      love.graphics.setColor(0.55, 0.42, 0.25, 1)
+      love.graphics.rectangle('fill', -3, -TILE_SIZE*0.25, 6, TILE_SIZE*0.35, 2, 2)
+      love.graphics.setColor(0.35, 0.22, 0.12, 1)
+      love.graphics.rectangle('line', -3, -TILE_SIZE*0.25, 6, TILE_SIZE*0.35, 2, 2)
+      -- hub
+      love.graphics.setColor(0.85, 0.75, 0.5, 1)
+      love.graphics.circle('fill', 0, -TILE_SIZE*0.25, 3)
+      love.graphics.setColor(0.35, 0.22, 0.12, 1)
+      love.graphics.circle('line', 0, -TILE_SIZE*0.25, 3)
+      -- blades (rotate)
+      local rot = t * 2.5
+      local function blade(angle)
+        local a = angle + rot
+        local bx = math.cos(a)
+        local by = math.sin(a)
+        love.graphics.push()
+        love.graphics.translate(0, -TILE_SIZE*0.25)
+        love.graphics.rotate(a)
+        love.graphics.setColor(0.90, 0.88, 0.78, 1)
+        love.graphics.rectangle('fill', 0, -2, TILE_SIZE*0.22, 4, 2, 2)
+        love.graphics.setColor(0.55, 0.48, 0.35, 1)
+        love.graphics.rectangle('line', 0, -2, TILE_SIZE*0.22, 4, 2, 2)
+        love.graphics.pop()
       end
+      blade(0)
+      blade(math.pi * 0.5)
+      blade(math.pi)
+      blade(math.pi * 1.5)
+      -- crops filling the neighboring tiles around the center (no extra green patches)
+      local farmExpanded = state.game and state.game.research and state.game.research.farmExpansionUnlocked
+      local minG, maxG = -1, 1
+      if farmExpanded then minG, maxG = -2, 2 end
+      for gx = minG, maxG do
+        for gy = -1, 1 do
+          if not (gx == 0 and gy == 0) then
+            local baseX = gx * TILE_SIZE
+            local baseY = gy * TILE_SIZE
+            local sway = math.sin(t * 3.0 + (gx * 3 + gy)) * 2.0
+            love.graphics.setColor(0.95, 0.82, 0.35, 1)
+            -- three small crop clumps per tile, lightly varied
+            love.graphics.rectangle('fill', baseX - TILE_SIZE*0.25, baseY - 6 - sway, 6, 12, 2, 2)
+            love.graphics.rectangle('fill', baseX - 2,              baseY - 5 - sway * 0.6, 5, 10, 2, 2)
+            love.graphics.rectangle('fill', baseX + TILE_SIZE*0.25, baseY - 6 - sway * 0.4, 6, 12, 2, 2)
+          end
+        end
+      end
+    elseif b.type == 'research' then
+      -- simple procedural research center: small pavilion with scrolls
+      love.graphics.setColor(0.85, 0.82, 0.70, 1)
+      love.graphics.rectangle('fill', -TILE_SIZE/2 + 6, -TILE_SIZE/2 + 12, TILE_SIZE - 12, TILE_SIZE - 18, 6, 6)
+      love.graphics.setColor(0.35, 0.22, 0.12, 1)
+      love.graphics.rectangle('line', -TILE_SIZE/2 + 6, -TILE_SIZE/2 + 12, TILE_SIZE - 12, TILE_SIZE - 18, 6, 6)
+      -- roof
+      love.graphics.setColor(0.55, 0.2, 0.2, 1)
+      love.graphics.polygon('fill', -TILE_SIZE/2 + 2, -TILE_SIZE/2 + 12, 0, -TILE_SIZE/2 + 2, TILE_SIZE/2 - 2, -TILE_SIZE/2 + 12)
+      love.graphics.setColor(0.35, 0.15, 0.12, 1)
+      love.graphics.polygon('line', -TILE_SIZE/2 + 2, -TILE_SIZE/2 + 12, 0, -TILE_SIZE/2 + 2, TILE_SIZE/2 - 2, -TILE_SIZE/2 + 12)
+      -- scroll on table
+      love.graphics.setColor(0.95, 0.9, 0.75, 1)
+      love.graphics.rectangle('fill', -12, 4, 24, 8, 3, 3)
+      love.graphics.setColor(0.7, 0.6, 0.45, 1)
+      love.graphics.rectangle('line', -12, 4, 24, 8, 3, 3)
     end
 
     -- Market accents
@@ -496,11 +611,13 @@ function buildings.drawAll(state)
       local bh = 18
       local ox = 0
       local oy = -TILE_SIZE * 0.72
-      love.graphics.setColor(0, 0, 0, 0.55)
+      love.graphics.setColor(0.35, 0.22, 0.12, 0.9)
+      love.graphics.rectangle('fill', ox - bw/2 - 2, oy - bh/2 + 2, bw + 4, bh + 4, 6, 6)
+      love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
       love.graphics.rectangle('fill', ox - bw/2, oy - bh/2, bw, bh, 6, 6)
-      love.graphics.setColor(colors.uiPanelOutline)
+      love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
       love.graphics.rectangle('line', ox - bw/2, oy - bh/2, bw, bh, 6, 6)
-      love.graphics.setColor(colors.text)
+      love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
       love.graphics.print(label, ox - bw/2 + pad, oy - bh/2 + 2)
     end
 

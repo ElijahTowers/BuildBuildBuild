@@ -72,7 +72,8 @@ state.game = {
 	roadSpeed = { onRoadMultiplier = 1.5 }, -- tuning for road speed bonus
 	jobs = { demolitions = {}, _nextId = 1 },
 	starving = false, -- when true, workers slowed
-	_foodAcc = 0 -- fractional accumulator for food consumption
+	_foodAcc = 0, -- fractional accumulator for food consumption
+	research = { points = 0, farmExpansionUnlocked = false, target = 'Farm Expansion', progress = 0, required = 60 }
 }
 
 -- Building definitions and balance
@@ -118,6 +119,12 @@ state.buildingDefs = {
     workerSpeed = 120,
     harvestTime = 6.0, -- seconds per trip (balanced)
     harvestPerTrip = 1 -- food delivered per worker per trip (balanced)
+  },
+  research = {
+    cost = { wood = 30 },
+    buildRequired = 42,
+    numWorkers = 2,
+    researchRate = 1.0 -- points per second per worker
   },
   road = {
     costPerTile = { wood = 1 }
