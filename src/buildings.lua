@@ -585,22 +585,7 @@ function buildings.drawAll(state)
       love.graphics.rectangle('line', -12, 4, 24, 8, 3, 3)
     end
 
-    -- Market accents
-    if b.type == 'market' then
-      local aw = TILE_SIZE * 0.6
-      local ah = TILE_SIZE * 0.28
-      love.graphics.setColor(0.9, 0.2, 0.2, 0.9)
-      love.graphics.rectangle('fill', cx - aw/2, cy - TILE_SIZE * 0.4, aw, 10, 4, 4)
-      love.graphics.setColor(1, 1, 1, 0.8)
-      love.graphics.rectangle('fill', cx - aw/2, cy - TILE_SIZE * 0.4 + 10, aw, 8, 0, 0)
-      love.graphics.setColor(0.9, 0.2, 0.2, 0.9)
-      for i=0,5 do
-        local sx = cx - aw/2 + i * (aw/6)
-        love.graphics.polygon('fill', sx, cy - TILE_SIZE * 0.4 + 18, sx + aw/6, cy - TILE_SIZE * 0.4 + 18, sx + aw/12, cy - TILE_SIZE * 0.4 + 18 + ah)
-      end
-      love.graphics.setColor(colors.outline)
-      love.graphics.rectangle('line', cx - aw/2, cy - TILE_SIZE * 0.4, aw, 10, 4, 4)
-    end
+    -- Market accents removed by request
 
     -- Floating selection label above the selected building (helps clicking on map)
     if state.ui.selectedBuilding == b then
