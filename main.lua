@@ -85,8 +85,8 @@ local function drawPlacementPreview()
   local isValid = buildings.canPlaceAt(state, tileX, tileY)
     and not isOverUI(love.mouse.getX(), love.mouse.getY())
 
-  -- Show lumberyard/market radius while previewing
-  if state.ui.selectedBuildingType == 'lumberyard' or state.ui.selectedBuildingType == 'market' then
+  -- Show radius while previewing for buildings with area effects
+  if state.ui.selectedBuildingType == 'lumberyard' or state.ui.selectedBuildingType == 'market' or state.ui.selectedBuildingType == 'flowerbed' then
     local def = state.buildingDefs[state.ui.selectedBuildingType]
     local radiusPx = (def.radiusTiles or 0) * TILE_SIZE
     local cx = px + TILE_SIZE / 2
@@ -379,7 +379,8 @@ function love.update(dt)
   end
 
   -- Systems
-  missions.update(state, dt)
+  -- Use game-time delta so mission timers ("full day") respect time speed
+  missions.update(state, sdt)
   if not isInitial then
     workers.update(state, sdt)
   end

@@ -399,6 +399,8 @@ local function goTo(w, px, py, speed, dt, state)
     end
   end
 
+  -- Track motion for stuck detection and usage marking
+  local lastX, lastY = w._lastX or w.x, w._lastY or w.y
   local dx = px - w.x
   local dy = py - w.y
   local dist = math.sqrt(dx * dx + dy * dy)
@@ -415,7 +417,14 @@ local function goTo(w, px, py, speed, dt, state)
   if state and roads.hasRoad(state, tileX, tileY) then
     mult = (state.game.roadSpeed and state.game.roadSpeed.onRoadMultiplier) or 1.5
     w._onRoad = true
-    roads.markUsed(state, tileX, tileY)
+    -- Only mark usage when actually moving into a new road tile to avoid false glows
+    local moved = math.abs(w.x - lastX) + math.abs(w.y - lastY)
+    if moved > 0.1 then
+      if w._lastRoadTileX ~= tileX or w._lastRoadTileY ~= tileY then
+        roads.markUsed(state, tileX, tileY)
+        w._lastRoadTileX, w._lastRoadTileY = tileX, tileY
+      end
+    end
   else
     w._onRoad = false
   end
@@ -445,6 +454,21 @@ local function goTo(w, px, py, speed, dt, state)
   end
   w.x = w.x + vx * speed * mult * dt
   w.y = w.y + vy * speed * mult * dt
+
+  -- Stuck detection: if barely moved for a while, clear route/waypoint to retry
+  local movedNow = math.abs(w.x - lastX) + math.abs(w.y - lastY)
+  if movedNow < 0.2 then
+    w._stuckTimer = (w._stuckTimer or 0) + dt
+    if w._stuckTimer > 1.5 then
+      w._route = nil; w._routeIndex = nil; w._waypoint = nil
+      w._stuckTimer = 0
+    end
+  else
+    w._stuckTimer = 0
+  end
+
+  -- remember last position for next frame
+  w._lastX, w._lastY = w.x, w.y
   return false
 end
 

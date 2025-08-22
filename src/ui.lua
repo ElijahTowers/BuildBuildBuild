@@ -34,7 +34,8 @@ ui.buildMenu = {
     { key = "market", label = "Market", color = { 0.85, 0.5, 0.25, 1.0 } },
     { key = "builder", label = "Builders Workplace", color = { 0.7, 0.5, 0.3, 1.0 } },
     { key = "farm", label = "Farm", color = { 0.7, 0.8, 0.3, 1.0 } },
-    { key = "research", label = "Research Center", color = { 0.5, 0.6, 0.9, 1.0 } }
+    { key = "research", label = "Research Center", color = { 0.5, 0.6, 0.9, 1.0 } },
+    { key = "flowerbed", label = "Flower Bed (Decor)", color = { 0.95, 0.65, 0.75, 1.0 } }
   }
 }
 
@@ -852,7 +853,9 @@ function ui.drawMissionPanel(state)
     return
   end
   -- Layout calculations with dynamic height and text wrapping
-  local w = 420
+  local screenW, screenH = love.graphics.getDimensions()
+  -- Scale panel width with screen size for readability
+  local w = math.min(560, math.max(420, math.floor(screenW * 0.45)))
   local padding = 12
   local titleH = 24
   local font = love.graphics.getFont()
@@ -868,8 +871,8 @@ function ui.drawMissionPanel(state)
   end
   if M.completed then contentH = contentH + 20 end
   local h = contentH + padding * 2
-  local x = love.graphics.getWidth() - w - 16
-  local y = love.graphics.getHeight() - h - 16
+  local x = screenW - w - 16
+  local y = screenH - h - 16
 
   -- Pixel-art parchment theme (panel frame)
   local function drawPixelFrame(px, py, pw, ph)
@@ -891,7 +894,9 @@ function ui.drawMissionPanel(state)
   local oy = y + 10 + titleH
   for _, o in ipairs(M.objectives or {}) do
     -- draw scroll-like strip
-    local rowH = math.max(24, lineH)
+    -- Recompute wrapped lines per objective to size the strip correctly
+    local _, wrapped = font:getWrap(o.text or '', textW)
+    local rowH = math.max(24, #wrapped * lineH + 2)
     local stripW = w - 24
     local sx = x + 12
     local sy = oy - 4
@@ -915,6 +920,16 @@ function ui.drawMissionPanel(state)
     local tx = sx + 22
     local tw = stripW - 44
     local text = (o.text or '')
+    -- Append live state hints for select objectives
+    if state.mission and state.mission.stage == 5 then
+      if o.id == 'road_loop' then
+        local len = state.mission._loopLen or 0
+        text = text .. string.format("  (%d/12 tiles)", math.min(12, len))
+      elseif o.id == 'logistics_day' then
+        local pct = state.mission._logisticsPct or 0
+        text = text .. string.format("  (Storage %d%% full)", pct)
+      end
+    end
     love.graphics.printf(text, tx, sy + 6, tw, 'left')
 
     -- Progress bar (pixel)
@@ -935,8 +950,19 @@ function ui.drawMissionPanel(state)
       love.graphics.rectangle('fill', headX, by - 2, 2, 2)
       love.graphics.rectangle('fill', headX + 3, by + bh, 2, 2)
       love.graphics.rectangle('fill', headX - 3, by + bh, 2, 2)
+      -- Progress label, right-aligned and readable
+      local label
+      if o.id == 'logistics_day' and state.time and state.time.dayLength then
+        local dl = state.time.dayLength
+        local hours = math.min(12, ((o.current or 0) / dl) * 12)
+        local hoursInt = math.floor(hours)
+        label = string.format('%d / 12 hours', hoursInt)
+      else
+        label = string.format('%d / %d', math.floor(o.current or 0), o.target)
+      end
+      local lw = font:getWidth(label)
       love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
-      love.graphics.print(string.format('%d / %d', math.floor(o.current or 0), o.target), bx + bw - 56, by - 12)
+      love.graphics.print(label, bx + bw - lw, by - 12)
       oy = by + bh + 12
     else
       oy = blockBottom + 12

@@ -56,12 +56,17 @@ end
 function roads.markUsed(state, x, y)
   ensureState(state)
   local k = key(x, y)
-  state.game.roadsUsage[k] = math.min(1.0, (state.game.roadsUsage[k] or 0) + 0.5)
+  -- Increment softly and clamp; this avoids long glows from rapid repeated marks
+  local v = (state.game.roadsUsage[k] or 0)
+  v = v + 0.35
+  if v > 1.0 then v = 1.0 end
+  state.game.roadsUsage[k] = v
 end
 
 function roads.update(state, dt)
   ensureState(state)
-  local decay = 1.5 * dt
+  -- Slightly faster decay to shorten false-positive glows
+  local decay = 2.2 * dt
   for k, v in pairs(state.game.roadsUsage) do
     v = v - decay
     if v <= 0 then state.game.roadsUsage[k] = nil else state.game.roadsUsage[k] = v end

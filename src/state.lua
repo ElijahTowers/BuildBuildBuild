@@ -126,6 +126,13 @@ state.buildingDefs = {
     numWorkers = 2,
     researchRate = 1.0 -- points per second per worker
   },
+  -- Decor: Flower Bed
+  flowerbed = {
+    cost = { wood = 4 },
+    buildRequired = 6,
+    radiusTiles = 4, -- happiness effect radius
+    happiness = 1    -- per-house bonus within radius (stacking soft cap handled in UI later)
+  },
   road = {
     costPerTile = { wood = 1 }
   }

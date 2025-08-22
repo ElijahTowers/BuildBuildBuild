@@ -117,6 +117,7 @@ function buildings.place(state, buildingType, tileX, tileY)
   elseif buildingType == 'market' then color = { 0.85, 0.5, 0.25, 1.0 }
   elseif buildingType == 'farm' then color = { 0.7, 0.8, 0.3, 1.0 }
   elseif buildingType == 'research' then color = { 0.5, 0.6, 0.9, 1.0 }
+  elseif buildingType == 'flowerbed' then color = { 0.95, 0.65, 0.75, 1.0 }
   end
   local newB = {
     id = (state.game._nextBuildingId or 1),
@@ -369,8 +370,11 @@ function buildings.drawAll(state)
     local cx = px + TILE_SIZE / 2
     local cy = py + TILE_SIZE / 2
 
-    love.graphics.setColor(0, 0, 0, 0.18)
-    love.graphics.ellipse('fill', cx, py + TILE_SIZE * 0.9, TILE_SIZE * 0.35, TILE_SIZE * 0.18)
+    -- skip shadow for decor like flowerbeds
+    if b.type ~= 'flowerbed' then
+      love.graphics.setColor(0, 0, 0, 0.18)
+      love.graphics.ellipse('fill', cx, py + TILE_SIZE * 0.9, TILE_SIZE * 0.35, TILE_SIZE * 0.18)
+    end
 
     local appear = (b.anim and b.anim.appear) or 1
     local t = (b.anim and b.anim.t) or 0
@@ -383,7 +387,10 @@ function buildings.drawAll(state)
     love.graphics.translate(cx, cy)
     love.graphics.scale(scale, scale)
 
-    drawTileBase(TILE_SIZE, b.color)
+    -- skip square tile base for flowerbeds to blend with grass
+    if b.type ~= 'flowerbed' then
+      drawTileBase(TILE_SIZE, b.color)
+    end
 
     -- Priority glow if this building is top of queue
     do
@@ -397,8 +404,8 @@ function buildings.drawAll(state)
       end
     end
 
-    -- draw icon if available (except farm: draw procedural windmill + crops)
-    if b.type ~= 'farm' then
+    -- draw icon if available (except farm: draw procedural windmill + crops; flowerbed draws procedurally)
+    if b.type ~= 'farm' and b.type ~= 'flowerbed' then
       local innerPad = 0
       drawBuildingIcon(b.type, TILE_SIZE, innerPad)
     end
@@ -583,6 +590,33 @@ function buildings.drawAll(state)
       love.graphics.rectangle('fill', -12, 4, 24, 8, 3, 3)
       love.graphics.setColor(0.7, 0.6, 0.45, 1)
       love.graphics.rectangle('line', -12, 4, 24, 8, 3, 3)
+    elseif b.type == 'flowerbed' then
+      -- procedural flower bed: soil patch + scattered flowers
+      love.graphics.setColor(0.35, 0.22, 0.12, 1)
+      love.graphics.rectangle('fill', -TILE_SIZE/2 + 6, -TILE_SIZE/2 + 6, TILE_SIZE - 12, TILE_SIZE - 12, 6, 6)
+      love.graphics.setColor(0.20, 0.50, 0.22, 1)
+      love.graphics.rectangle('line', -TILE_SIZE/2 + 6, -TILE_SIZE/2 + 6, TILE_SIZE - 12, TILE_SIZE - 12, 6, 6)
+      -- scatter flowers deterministically per building id
+      local seed = (b.id or 1) * 9871
+      local function rnd()
+        seed = (seed * 1103515245 + 12345) % 2147483648
+        return (seed / 2147483648)
+      end
+      local colorsList = {
+        {0.95, 0.65, 0.75, 1}, -- pink
+        {0.95, 0.85, 0.35, 1}, -- yellow
+        {0.75, 0.85, 0.95, 1}, -- light blue
+        {0.90, 0.50, 0.40, 1}  -- coral
+      }
+      for i=1,10 do
+        local fx = -TILE_SIZE/2 + 10 + rnd() * (TILE_SIZE - 20)
+        local fy = -TILE_SIZE/2 + 10 + rnd() * (TILE_SIZE - 20)
+        local c = colorsList[1 + math.floor(rnd() * #colorsList)]
+        love.graphics.setColor(c)
+        love.graphics.circle('fill', fx, fy, 2)
+        love.graphics.setColor(0.18, 0.11, 0.06, 0.8)
+        love.graphics.circle('line', fx, fy, 2)
+      end
     end
 
     -- Market accents removed by request
@@ -622,6 +656,9 @@ function buildings.drawSelectedRadius(state)
   elseif b.type == 'market' then
     def = state.buildingDefs.market
     radiusTiles = def.radiusTiles
+  elseif b.type == 'flowerbed' then
+    def = state.buildingDefs.flowerbed
+    radiusTiles = def and def.radiusTiles
   else
     return
   end

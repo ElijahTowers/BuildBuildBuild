@@ -87,6 +87,85 @@ local function hasRoad(state, x, y)
 	return (state.game.roads and state.game.roads[k]) ~= nil
 end
 
+-- Count completed houses that are adjacent to at least one road tile
+local function countHousesConnectedByRoad(state)
+  local dirs = { {1,0}, {-1,0}, {0,1}, {0,-1} }
+  local count = 0
+  for _, h in ipairs(state.game.buildings or {}) do
+    if h.type == 'house' and (not h.construction or h.construction.complete) then
+      local connected = false
+      for i=1,4 do
+        local nx, ny = h.tileX + dirs[i][1], h.tileY + dirs[i][2]
+        if hasRoad(state, nx, ny) then connected = true; break end
+      end
+      if connected then count = count + 1 end
+    end
+  end
+  return count
+end
+
+-- Road connectivity between two buildings via adjacent road tiles
+local function roadConnectedBetweenBuildings(state, b1, b2)
+	if not b1 or not b2 then return false end
+	local dirs = { {1,0}, {-1,0}, {0,1}, {0,-1} }
+	local function adjRoadTiles(x, y)
+		local list = {}
+		for i=1,4 do
+			local nx, ny = x + dirs[i][1], y + dirs[i][2]
+			if hasRoad(state, nx, ny) then table.insert(list, { nx, ny }) end
+		end
+		return list
+	end
+	local start = adjRoadTiles(b1.tileX, b1.tileY)
+	local goals = {}
+	for _, t in ipairs(adjRoadTiles(b2.tileX, b2.tileY)) do
+		goals[t[1] .. "," .. t[2]] = true
+	end
+	if #start == 0 or (next(goals) == nil) then return false end
+	local K = function(x,y) return x .. "," .. y end
+	local q = {}
+	for _, s in ipairs(start) do table.insert(q, s) end
+	local head = 1
+	local visited = {}
+	for _, s in ipairs(start) do visited[K(s[1], s[2])] = true end
+	while q[head] do
+		local cx, cy = q[head][1], q[head][2]
+		head = head + 1
+		if goals[K(cx, cy)] then return true end
+		for i=1,4 do
+			local nx, ny = cx + dirs[i][1], cy + dirs[i][2]
+			if hasRoad(state, nx, ny) and not visited[K(nx, ny)] then
+				visited[K(nx, ny)] = true
+				table.insert(q, { nx, ny })
+			end
+		end
+	end
+	return false
+end
+
+-- Check for a Builder's Workplace at least 50 tiles from the first one, road-connected
+local function frontierOutpostAchieved(state)
+	local firstBuilder = nil
+	for _, b in ipairs(state.game.buildings or {}) do
+		if b.type == 'builder' and (not b.construction or b.construction.complete) then
+			firstBuilder = b; break
+		end
+	end
+	if not firstBuilder then return false end
+	local threshold = 50
+	local thresholdSq = threshold * threshold
+	for _, b in ipairs(state.game.buildings or {}) do
+		if b.type == 'builder' and b ~= firstBuilder and (not b.construction or b.construction.complete) then
+			local dx = b.tileX - firstBuilder.tileX
+			local dy = b.tileY - firstBuilder.tileY
+			if dx*dx + dy*dy >= thresholdSq then
+				if roadConnectedBetweenBuildings(state, firstBuilder, b) then return true end
+			end
+		end
+	end
+	return false
+end
+
 local function housesConnectedToMarketByRoads(state)
 	local dirs = { {1,0}, {-1,0}, {0,1}, {0,-1} }
 	local function adjRoadTiles(x, y)
@@ -166,6 +245,84 @@ end
 local function allObjectivesComplete(objs)
 	for _, o in ipairs(objs) do if not o.done then return false end end
 	return true
+end
+
+-- Roads helpers: detect any road loop and approximate its length
+local function computeAnyRoadLoopLength(state)
+    local roadsMap = state.game and state.game.roads or {}
+    if not roadsMap then return 0 end
+    local dirs = { {1,0}, {-1,0}, {0,1}, {0,-1} }
+    local function K(x,y) return x .. "," .. y end
+    local function has(x,y)
+        return roadsMap[K(x,y)] ~= nil
+    end
+    local globalVisited = {}
+    for _, rd in pairs(roadsMap) do
+        local sx, sy = rd.tileX, rd.tileY
+        local sk = K(sx,sy)
+        if not globalVisited[sk] then
+            local parent = {}
+            local depth = {}
+            local visited = {}
+            local q = { {sx, sy} }
+            local head = 1
+            visited[sk] = true
+            depth[sk] = 0
+            parent[sk] = false
+            globalVisited[sk] = true
+            while q[head] do
+                local cx, cy = q[head][1], q[head][2]
+                head = head + 1
+                for i=1,4 do
+                    local nx, ny = cx + dirs[i][1], cy + dirs[i][2]
+                    if has(nx, ny) then
+                        local ck = K(cx,cy)
+                        local nk = K(nx,ny)
+                        if not visited[nk] then
+                            visited[nk] = true
+                            globalVisited[nk] = true
+                            depth[nk] = (depth[ck] or 0) + 1
+                            parent[nk] = { cx, cy }
+                            q[#q+1] = { nx, ny }
+                        elseif not (parent[ck] and parent[ck][1] == nx and parent[ck][2] == ny) then
+                            -- Found a back/cross edge forming a cycle; estimate its length via ancestry
+                            local ancestors = {}
+                            local tk = ck
+                            while tk do
+                                ancestors[tk] = true
+                                local p = parent[tk]
+                                if not p then break end
+                                tk = K(p[1], p[2])
+                            end
+                            local stepsB = 0
+                            local bk = nk
+                            local meet = nil
+                            while bk do
+                                if ancestors[bk] then meet = bk; break end
+                                local p = parent[bk]
+                                if not p then break end
+                                bk = K(p[1], p[2])
+                                stepsB = stepsB + 1
+                            end
+                            if meet then
+                                local stepsA = 0
+                                local ak = ck
+                                while ak ~= meet do
+                                    local p = parent[ak]
+                                    if not p then break end
+                                    ak = K(p[1], p[2])
+                                    stepsA = stepsA + 1
+                                end
+                                local len = stepsA + stepsB + 1
+                                if len > 0 then return len end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return 0
 end
 
 local function setProgress(o, current, target, dt)
@@ -257,23 +414,25 @@ function missions.update(state, dt)
 				setProgress(o, countRoadTiles(state), 20, dt)
 			end
 		elseif M.stage == 4 then
-			if o.id == 'houses_2' then
-				setProgress(o, countCompletedBuildings(state, 'house'), 2, dt)
-			elseif o.id == 'finish_3' then
-				local completedNow = 0
-				for _, b in ipairs(state.game.buildings or {}) do if b.construction and b.construction.complete then completedNow = completedNow + 1 end end
-				local delta = math.max(0, completedNow - (M._completedBaseline or 0))
-				setProgress(o, delta, 3, dt)
-			elseif o.id == 'no_idle_builders' then
-				setProgress(o, (M._noIdleBuilders and 1 or 0), 1, dt)
+			if o.id == 'houses_4_connected' then
+				setProgress(o, countHousesConnectedByRoad(state), 4, dt)
+			-- finish_3 removed
+			elseif o.id == 'frontier_outpost' then
+				setProgress(o, (frontierOutpostAchieved(state) and 1 or 0), 1, dt)
 			end
 		elseif M.stage == 5 then
 			if o.id == 'trees_50' then
 				setProgress(o, computeLivingTrees(state), 50, dt)
 			elseif o.id == 'road_loop' then
-				setProgress(o, (M._hasLoop and 1 or 0), 1, dt)
+				local len = M._loopLen or 0
+				setProgress(o, math.min(12, len), 12, dt)
 			elseif o.id == 'logistics_day' then
-				setProgress(o, (M._logisticsOk and 1 or 0), 1, dt)
+				local pct = 100 - (M._logisticsPct or 0)
+				pct = math.max(0, math.min(100, pct))
+				-- Represent progress as time satisfied; UI will also show current %
+				local elapsed = (M._logisticsTimer or 0)
+				local target = (state.time and state.time.dayLength) or 60
+				setProgress(o, math.min(target, elapsed), target, dt)
 			end
 		elseif M.stage == 6 then
 			if o.id == 'stock_150' then
@@ -354,9 +513,8 @@ function missions.update(state, dt)
 			state.mission._completedBaseline = completedNow
 			state.mission._buildersTimer = 0
 			state.mission.objectives = {
-				{ id = 'houses_2', text = 'Build 2 Houses', done = false, current = 0, target = 2 },
-				{ id = 'finish_3', text = 'Complete 3 buildings', done = false, current = 0, target = 3 },
-				{ id = 'builders_day', text = 'Keep 2 Builders assigned for a full day', done = false, current = 0, target = 1 }
+				{ id = 'houses_4_connected', text = 'Block Party: Build 4 Houses, each connected to the road network', done = false, current = 0, target = 4 },
+				{ id = 'frontier_outpost', text = "Frontier Outpost: Builder’s Workplace ≥ 50 tiles from the first, road-connected", done = false, current = 0, target = 1 }
 			}
 		elseif prev == 4 then
 			state.mission.stage = 5
@@ -432,9 +590,8 @@ function missions.update(state, dt)
 				state.mission._completedBaseline = completedNow
 				state.mission._buildersTimer = 0
 				state.mission.objectives = {
-					{ id = 'houses_2', text = 'Build 2 Houses', done = false, current = 0, target = 2 },
-					{ id = 'finish_3', text = 'Complete 3 buildings', done = false, current = 0, target = 3 },
-					{ id = 'no_idle_builders', text = 'Prevent any builder idle warnings (No projects / No materials) for a full day', done = false, current = 0, target = 1 }
+					{ id = 'houses_4_connected', text = 'Block Party: Build 4 Houses, each connected to the road network', done = false, current = 0, target = 4 },
+					{ id = 'frontier_outpost', text = "Frontier Outpost: Builder’s Workplace ≥ 50 tiles from the first, road-connected", done = false, current = 0, target = 1 }
 				}
 			elseif M.stage == 4 then
 				-- Stage 5 – Green Belt
@@ -498,29 +655,14 @@ function missions.update(state, dt)
       M._countedThisNight = true
     end
   end
-  -- Stage 4: builders assigned for a full day
-  if M.stage == 4 then
-    -- Track no idle warnings for a full day for builder buildings
-    local anyIdle = false
-    for _, b in ipairs(state.game.buildings or {}) do
-      if b.type == 'builder' and b._noWorkReason then anyIdle = true; break end
-    end
-    if not anyIdle then
-      M._noIdleTimer = (M._noIdleTimer or 0) + dt
-      if M._noIdleTimer >= state.time.dayLength then M._noIdleBuilders = true end
-    else
-      M._noIdleTimer = 0
-    end
-  end
+  -- Stage 4: frontier outpost has no time-based tracker; handled in evaluation
   -- Stage 5: road loop and logistics discipline
   if M.stage == 5 then
     -- loop detection (cheap check occasionally)
     if (love.timer.getTime() % 1.0) < dt then
-      local function anyRoadLoopAtLeastLocal()
-        -- simple perimeter check via existing helper
-        return anyRoadLoopAtLeast and anyRoadLoopAtLeast(state, 12) or false
-      end
-      M._hasLoop = anyRoadLoopAtLeastLocal()
+      local loopLen = computeAnyRoadLoopLength(state)
+      M._loopLen = loopLen
+      M._hasLoop = loopLen >= 12
     end
     -- storage under 90% for a full day clock
     local woodTotal = (state.game.resources.wood or 0)
@@ -528,6 +670,8 @@ function missions.update(state, dt)
       if b.type == 'warehouse' and b.storage and b.storage.wood then woodTotal = woodTotal + b.storage.wood end
     end
     local cap = computeWoodCapacity(state)
+    -- Show current state to the player
+    M._logisticsPct = cap > 0 and math.floor((woodTotal / cap) * 100 + 0.5) or 0
     if woodTotal <= cap * 0.9 then
       M._logisticsTimer = (M._logisticsTimer or 0) + dt
       if M._logisticsTimer >= state.time.dayLength then M._logisticsOk = true end
