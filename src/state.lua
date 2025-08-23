@@ -40,9 +40,14 @@ state.ui = {
   _missionSelectorButtons = nil,
   _miniMap = nil,
   showMinimap = true,
+  _handheldMode = false,
+  _controllerHintAlpha = 0,
+  showMissionPanel = true,
   forceGrid = false,
   showHelp = false,
   selectedIndex = 0,
+  -- input mode
+  _useVirtualCursor = false,
   -- prompt message (legacy single prompt fields)
   promptText = nil,
   promptT = 0,
@@ -56,6 +61,11 @@ state.ui = {
   -- demolish mode
   isDemolishMode = false
 }
+
+-- Startup mode chooser (Desktop vs Retroid preset)
+state.ui._startupChoiceOpen = true
+state.ui._startupChoiceFocus = 1 -- 1=Desktop, 2=Retroid
+state.ui._startupChoiceButtons = nil
 
 -- Resources, population and world entities
 state.game = {
@@ -144,6 +154,12 @@ function state.resetWorldTilesFromScreen()
   local baseTilesY = math.floor(screenH / constants.TILE_SIZE)
   state.world.tilesX = math.max(32, baseTilesX * 4)
   state.world.tilesY = math.max(32, baseTilesY * 4)
+  -- On very small screens, start slightly zoomed out for readability
+  if (state.ui and state.ui._forceSmallScreen) or screenW < 1000 or screenH < 600 then
+    state.camera.scale = 0.85
+  else
+    state.camera.scale = 1.0
+  end
 end
 
 function state.restart()

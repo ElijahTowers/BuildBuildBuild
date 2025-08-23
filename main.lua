@@ -1,6 +1,78 @@
 -- main.lua
 -- Entry point: orchestrates modules and game loop
 
+-- Ensure LÖVE's require path can resolve modules inside 'src/' on all platforms (incl. Android)
+pcall(function()
+  if love and love.filesystem and love.filesystem.setRequirePath then
+    local getPath = love.filesystem.getRequirePath and love.filesystem.getRequirePath or function() return '' end
+    local current = getPath()
+    local wanted = '?.lua;?/init.lua;src/?.lua;src/?/init.lua'
+    if not current or current == '' then
+      love.filesystem.setRequirePath(wanted)
+    elseif not current:find('src/%?%.lua', 1, true) then
+      love.filesystem.setRequirePath(wanted .. ';' .. current)
+    end
+  end
+end)
+
+-- Robust module aliasing: ensure both 'name' and 'src.name' resolve to the same module
+local function _ensureModuleAliases(baseName)
+  local rootKey = baseName
+  local srcKey = 'src.' .. baseName
+  if package.loaded[srcKey] and package.loaded[rootKey] then return true end
+
+  local function tryRequire(name)
+    local ok, mod = pcall(require, name)
+    if ok and mod ~= true then return mod end
+    return nil
+  end
+
+  local function loadFromVFS(path)
+    if not (love and love.filesystem and love.filesystem.getInfo and love.filesystem.load) then return nil end
+    if not love.filesystem.getInfo(path) then return nil end
+    local chunk, err = love.filesystem.load(path)
+    if not chunk then return nil end
+    local ok, mod = pcall(chunk)
+    if ok and mod ~= true then return mod end
+    return nil
+  end
+
+  -- Prefer existing files if we can detect them
+  if love and love.filesystem and love.filesystem.getInfo then
+    if love.filesystem.getInfo('src/' .. baseName .. '.lua') then
+      local mod = tryRequire(srcKey) or loadFromVFS('src/' .. baseName .. '.lua')
+      if mod then
+        package.loaded[srcKey] = mod
+        package.loaded[rootKey] = package.loaded[rootKey] or mod
+        return true
+      end
+    elseif love.filesystem.getInfo(baseName .. '.lua') then
+      local mod = tryRequire(rootKey) or loadFromVFS(baseName .. '.lua')
+      if mod then
+        package.loaded[rootKey] = mod
+        package.loaded[srcKey] = package.loaded[srcKey] or mod
+        return true
+      end
+    end
+  end
+
+  -- Fallback: try both names via require
+  local mod = tryRequire(srcKey) or tryRequire(rootKey)
+  if mod then
+    package.loaded[srcKey] = package.loaded[srcKey] or mod
+    package.loaded[rootKey] = package.loaded[rootKey] or mod
+    return true
+  end
+  return false
+end
+
+do
+  local modules = {
+    'constants','utils','state','trees','grid','particles','buildings','workers','ui','save','roads','missions'
+  }
+  for i = 1, #modules do _ensureModuleAliases(modules[i]) end
+end
+
 -- Module imports
 local C = require('src.constants')
 local utils = require('src.utils')
@@ -22,6 +94,11 @@ local colors = C.colors
 -- Converts mouse screen position to world tile coordinates
 local function getMouseTile()
   local mx, my = love.mouse.getX(), love.mouse.getY()
+  if state.ui._handheldMode and state.ui._useVirtualCursor and state.ui._virtualCursor then
+    mx, my = state.ui._virtualCursor.x or mx, state.ui._virtualCursor.y or my
+  end
+  -- If a gamepad stick is used, allow a virtual cursor for handhelds
+  if state.ui._useVirtualCursor and state.ui._virtualCursor then mx, my = state.ui._virtualCursor.x, state.ui._virtualCursor.y end
   local worldX = state.camera.x + mx / state.camera.scale
   local worldY = state.camera.y + my / state.camera.scale
   local tileX = math.floor(worldX / TILE_SIZE)
@@ -31,21 +108,74 @@ end
 
 -- Convert explicit screen coords to tile (use for click handling to avoid drift)
 local function screenToTile(sx, sy)
-  local worldX = state.camera.x + sx / state.camera.scale
-  local worldY = state.camera.y + sy / state.camera.scale
+  if state.ui._handheldMode and state.ui._useVirtualCursor and state.ui._virtualCursor and (sx == nil or sy == nil) then
+    sx, sy = state.ui._virtualCursor.x, state.ui._virtualCursor.y
+  end
+  local worldX = state.camera.x + (sx or 0) / state.camera.scale
+  local worldY = state.camera.y + (sy or 0) / state.camera.scale
   return math.floor(worldX / TILE_SIZE), math.floor(worldY / TILE_SIZE)
 end
+
+-- Gamepad virtual cursor state
+state.ui._virtualCursor = state.ui._virtualCursor or { x = 200, y = 200 }
+local gamepad = nil
 
 -- Returns true if mouse is over any UI panel (build button or build menu)
 local function isOverUI(mx, my)
   if ui.isOverBuildButton(mx, my) then return true end
   local m = ui.buildMenu
   if state.ui.isBuildMenuOpen then
-    if utils.isPointInRect(mx, my, m.x, m.y, m.width, m.height) then
-      return true
+    -- support handheld radial bounds too
+    if state.ui._handheldMode and state.ui._buildMenuBounds then
+      for _, opt in ipairs(state.ui._buildMenuBounds) do
+        local b = opt._bounds
+        if b and utils.isPointInRect(mx, my, b.x, b.y, b.w, b.h) then return true end
+      end
+    else
+      if utils.isPointInRect(mx, my, m.x, m.y, m.width, m.height) then
+        return true
+      end
     end
   end
   return false
+end
+
+-- Apply startup preset and initialize world
+local function startGameWithPreset(preset)
+  local ww, wh, flags = love.window.getMode()
+  flags = flags or {}
+  if preset == 'retroid' then
+    -- Retroid Pocket 4 Pro landscape resolution
+    flags.highdpi = false
+    flags.resizable = false
+    flags.fullscreen = false
+    flags.borderless = false
+    -- Ensure we leave any fullscreen/maximized state first
+    pcall(love.window.setFullscreen, false)
+    pcall(love.window.restore)
+    love.window.setMode(1334, 750, flags)
+    -- Center the window on the primary display if possible
+    if love.window.getDesktopDimensions then
+      local dw, dh = love.window.getDesktopDimensions(1)
+      if dw and dh and love.window.setPosition then
+        local px = math.max(0, math.floor((dw - 1334) / 2))
+        local py = math.max(0, math.floor((dh - 750) / 2))
+        pcall(love.window.setPosition, px, py, 1)
+      end
+    end
+    state.ui._useVirtualCursor = true
+    state.ui._forceSmallScreen = true
+    state.ui._handheldMode = true
+    state.ui.showMinimap = true
+  end
+  -- Compute tiles and UI, then reset world and generate
+  state.resetWorldTilesFromScreen()
+  ui.computeBuildMenuHeight()
+  state.restart()
+  trees.generate(state)
+  missions.init(state)
+  -- Close startup choice
+  state.ui._startupChoiceOpen = false
 end
 
 -- Count warehouses in the world
@@ -168,27 +298,45 @@ function love.load()
   math.randomseed(os.time())
   state.resetWorldTilesFromScreen()
   ui.computeBuildMenuHeight()
+  if not state.ui._startupChoiceOpen then
     trees.generate(state)
-  missions.init(state)
+    missions.init(state)
+  end
  
   -- Start at beginning of the day (around sunrise ~06:00)
   state.time.t = state.time.dayLength * 0.25
   state.time.normalized = state.time.t / state.time.dayLength
 
-  -- Start with free builder placement preview
-  state.ui.isPlacingBuilding = true
-  state.ui.selectedBuildingType = 'builder'
-  state.ui._isFreeInitialBuilder = true
-  -- Pause time until initial builder is placed
-  state.ui._pauseTimeForInitial = true
-  -- Prompt the player to place the builders workplace
-  state.ui.promptText = "Place your Builders Workplace for free. Left-click a tile to place."
-  state.ui.promptT = 0
-  state.ui.promptDuration = 9999
+  -- Start with free builder placement preview if not waiting for startup choice
+  if not state.ui._startupChoiceOpen then
+    state.ui.isPlacingBuilding = true
+    state.ui.selectedBuildingType = 'builder'
+    state.ui._isFreeInitialBuilder = true
+    state.ui._pauseTimeForInitial = true
+    state.ui.promptText = "Place your Builders Workplace for free. Left-click a tile to place."
+    state.ui.promptT = 0
+    state.ui.promptDuration = 9999
+  end
 end
 
 function love.update(dt)
-  if state.ui.isPaused or state.ui.isBuildMenuOpen or state.ui.isVillagersPanelOpen or state.ui.isBuildQueueOpen or state.ui.isFoodPanelOpen or state.ui.isMissionSelectorOpen then return end
+  if state.ui._startupChoiceOpen then return end
+  -- Allow time to flow even with panels if desired; keep original pause behavior
+  -- Handheld: hide virtual cursor when a navigable panel/menu is open; show it again when closed
+  if state.ui._handheldMode then
+    local navigableOpen = state.ui.isBuildMenuOpen == true
+      or state.ui.isMissionSelectorOpen == true
+      or state.ui.isVillagersPanelOpen == true
+      or state.ui.isBuildQueueOpen == true
+      or state.ui.isFoodPanelOpen == true
+      or state.ui.isPaused == true
+    if navigableOpen then
+      state.ui._useVirtualCursor = false
+    else
+      state.ui._useVirtualCursor = true
+    end
+  end
+  if state.ui.isPaused then return end
   local isInitial = state.ui._pauseTimeForInitial
 
   -- Auto speed by day/night
@@ -252,6 +400,24 @@ function love.update(dt)
   if not isInitial then
     state.time.t = (state.time.t + sdt) % state.time.dayLength
     state.time.normalized = state.time.t / state.time.dayLength
+  end
+
+  -- Apply smooth zoom from right stick on handheld
+  if state.ui._handheldMode and state.ui._zoomVel and math.abs(state.ui._zoomVel) > 1e-3 then
+    local oldScale = state.camera.scale
+    local newScale = utils.clamp(oldScale * (1 + state.ui._zoomVel * dt), state.camera.minScale, state.camera.maxScale)
+    if math.abs(newScale - oldScale) > 1e-6 then
+      local mx = love.graphics.getWidth()/2
+      local my = love.graphics.getHeight()/2
+      local preWorldX = state.camera.x + mx / oldScale
+      local preWorldY = state.camera.y + my / oldScale
+      state.camera.scale = newScale
+      state.camera.x = utils.clamp(preWorldX - mx / newScale, 0, math.max(0, state.world.tilesX * TILE_SIZE - love.graphics.getWidth() / newScale))
+      state.camera.y = utils.clamp(preWorldY - my / newScale, 0, math.max(0, state.world.tilesY * TILE_SIZE - love.graphics.getHeight() / newScale))
+    end
+    -- friction
+    state.ui._zoomVel = state.ui._zoomVel * 0.9
+    if math.abs(state.ui._zoomVel) < 1e-3 then state.ui._zoomVel = 0 end
   end
 
   -- Synchronized daily mealtime: all villagers eat just before nightfall
@@ -391,6 +557,28 @@ function love.update(dt)
 
   -- Preview timer for pulsing outline
   state.ui.previewT = state.ui.previewT + sdt
+  -- Virtual cursor update (left stick moves cursor) - disabled while navigable menu is open in handheld mode
+  if gamepad and gamepad:isConnected() then
+    local suppressCursor = state.ui._handheldMode and (
+      state.ui.isBuildMenuOpen or state.ui.isMissionSelectorOpen or state.ui.isVillagersPanelOpen or state.ui.isBuildQueueOpen or state.ui.isFoodPanelOpen or state.ui.isPaused
+    )
+    if not suppressCursor then
+      local ax = gamepad:getGamepadAxis("leftx") or 0
+      local ay = gamepad:getGamepadAxis("lefty") or 0
+      -- Lower speed and use cubic response for precision near center
+      local maxSpeed = 520
+      local ax3 = ax * math.abs(ax) * math.abs(ax)
+      local ay3 = ay * math.abs(ay) * math.abs(ay)
+      local scale = state.camera.scale or 1
+      local vx = (ax3 * maxSpeed * dt)
+      local vy = (ay3 * maxSpeed * dt)
+      if math.abs(ax) > 0.15 or math.abs(ay) > 0.15 then
+        state.ui._useVirtualCursor = true
+        state.ui._virtualCursor.x = utils.clamp((state.ui._virtualCursor.x or 0) + vx, 0, love.graphics.getWidth())
+        state.ui._virtualCursor.y = utils.clamp((state.ui._virtualCursor.y or 0) + vy, 0, love.graphics.getHeight())
+      end
+    end
+  end
   -- Stacked prompts update
   do
     state.ui.prompts = state.ui.prompts or {}
@@ -423,8 +611,11 @@ function love.update(dt)
     state.ui.promptText = nil; state.ui.promptDuration = 0; state.ui._promptUseRealTime = nil
   end
 
-  -- Mouse edge panning (not speed-scaled)
+  -- Mouse/touch edge panning (not speed-scaled) and virtual-cursor edge pan on handheld
   local mx, my = love.mouse.getPosition()
+  if state.ui._handheldMode and state.ui._useVirtualCursor and state.ui._virtualCursor then
+    mx, my = state.ui._virtualCursor.x or mx, state.ui._virtualCursor.y or my
+  end
   local screenW, screenH = love.graphics.getDimensions()
   local margin = 24
   local dx, dy = 0, 0
@@ -479,6 +670,48 @@ local function drawDayNightOverlay()
 end
 
 function love.draw()
+  if state.ui._startupChoiceOpen then
+    local w, h = love.graphics.getDimensions()
+    love.graphics.setColor(0,0,0,0.5)
+    love.graphics.rectangle('fill', 0, 0, w, h)
+    local mw, mh = 520, 240
+    local mx, my = (w - mw) / 2, (h - mh) / 2
+    love.graphics.setColor(0.95, 0.90, 0.80, 1.0)
+    love.graphics.rectangle('fill', mx, my, mw, mh, 10, 10)
+    love.graphics.setColor(0.25, 0.18, 0.10, 1.0)
+    love.graphics.setLineWidth(3)
+    love.graphics.rectangle('line', mx, my, mw, mh, 10, 10)
+    love.graphics.setLineWidth(1)
+    local title = "Choose Display Mode"
+    local tw = love.graphics.getFont():getWidth(title)
+    love.graphics.print(title, mx + (mw - tw) / 2, my + 18)
+    local bx, by, bw, bh = mx + 40, my + 80, 200, 60
+    local bx2 = mx + mw - 40 - 200
+    local focus = state.ui._startupChoiceFocus or 1
+    -- Desktop button
+    love.graphics.setColor(0.85, 0.8, 0.7, 1)
+    love.graphics.rectangle('fill', bx, by, bw, bh, 8, 8)
+    if focus == 1 then
+      love.graphics.setColor(0.2, 0.7, 0.3, 0.3)
+      love.graphics.rectangle('fill', bx+4, by+4, bw-8, bh-8, 8, 8)
+    end
+    love.graphics.setColor(0.2, 0.15, 0.1, 1)
+    love.graphics.rectangle('line', bx, by, bw, bh, 8, 8)
+    local l1 = "Desktop (current size)"
+    love.graphics.print(l1, bx + (bw - love.graphics.getFont():getWidth(l1)) / 2, by + 20)
+    -- Retroid button
+    love.graphics.setColor(0.85, 0.8, 0.7, 1)
+    love.graphics.rectangle('fill', bx2, by, bw, bh, 8, 8)
+    if focus == 2 then
+      love.graphics.setColor(0.2, 0.7, 0.3, 0.3)
+      love.graphics.rectangle('fill', bx2+4, by+4, bw-8, bh-8, 8, 8)
+    end
+    love.graphics.setColor(0.2, 0.15, 0.1, 1)
+    love.graphics.rectangle('line', bx2, by, bw, bh, 8, 8)
+    local l2 = "Retroid Pocket 4 Pro (1334x750)"
+    love.graphics.print(l2, bx2 + (bw - love.graphics.getFont():getWidth(l2)) / 2, by + 20)
+    return
+  end
   -- World space draw
   love.graphics.push()
   love.graphics.scale(state.camera.scale, state.camera.scale)
@@ -560,14 +793,25 @@ function love.draw()
   -- Day-night overlay over world and under UI
   drawDayNightOverlay()
 
+  -- Draw virtual cursor when a gamepad is present (UI-space)
+  if gamepad and gamepad:isConnected() and state.ui._virtualCursor then
+    local x, y = state.ui._virtualCursor.x, state.ui._virtualCursor.y
+    if state.ui._useVirtualCursor then
+      love.graphics.setColor(1, 1, 1, 0.9)
+      love.graphics.circle('fill', x, y, 4)
+      love.graphics.setColor(0, 0, 0, 0.6)
+      love.graphics.circle('line', x, y, 4)
+    end
+  end
+
   -- UI draw
   ui.drawTopButtons(state)
   ui.drawBuildMenu(state, state.buildingDefs)
   ui.drawHUD(state)
   ui.drawFoodPanel(state)
   ui.drawBuildQueue(state)
-  ui.drawMiniMap(state)
-  ui.drawMissionPanel(state)
+  if state.ui.showMinimap then ui.drawMiniMap(state) end
+  if state.ui.showMissionPanel then ui.drawMissionPanel(state) end
   ui.drawPrompt(state)
 
   local sel = state.ui.selectedBuilding
@@ -592,15 +836,7 @@ function love.draw()
     end
   end
 
-  if not state.ui.isPaused and not state.ui.isBuildMenuOpen then
-    love.graphics.setColor(colors.text)
-    local hintY = love.graphics.getHeight() - 24
-    local hint = "Click 'Build' -> choose 'House' or 'Lumberyard' -> place on the map. Move mouse to screen edges to pan. Right click to cancel placement."
-    -- Suppress base hint during road mode; show as prompt instead
-    if not state.ui.isPlacingRoad then
-      love.graphics.print(hint, 16, hintY)
-    end
-  end
+  -- bottom hint removed in handheld/desktop per request
 
   -- Do not show pause menu if Food Panel is open (even if paused)
   if not state.ui.isFoodPanelOpen then
@@ -618,6 +854,32 @@ local function hitTestBuildingAt(state, tileX, tileY)
 end
 
 function love.mousepressed(x, y, button)
+  if state.ui._startupChoiceOpen then
+    if button ~= 1 then return end
+    local w, h = love.graphics.getDimensions()
+    local mw, mh = 520, 240
+    local mx, my = (w - mw) / 2, (h - mh) / 2
+    local bx, by, bw, bh = mx + 40, my + 80, 200, 60
+    local bx2 = mx + mw - 40 - 200
+    if utils.isPointInRect(x, y, bx, by, bw, bh) then
+      startGameWithPreset('desktop')
+      return
+    elseif utils.isPointInRect(x, y, bx2, by, bw, bh) then
+      startGameWithPreset('retroid')
+      return
+    end
+    return
+  end
+  -- Keep virtual cursor disabled while the build menu is open
+  if state.ui.isBuildMenuOpen then
+    state.ui._useVirtualCursor = false
+  else
+    state.ui._useVirtualCursor = state.ui._handheldMode and state.ui._useVirtualCursor or false
+  end
+  -- If using virtual cursor, redirect to its position to ensure hover/click parity
+  if state.ui._handheldMode and state.ui._useVirtualCursor and state.ui._virtualCursor then
+    x, y = state.ui._virtualCursor.x or x, state.ui._virtualCursor.y or y
+  end
   -- During initial free placement, block all interactions except left-click placement
   if state.ui._isFreeInitialBuilder then
     if button ~= 1 then return end
@@ -862,13 +1124,25 @@ function love.mousepressed(x, y, button)
      if state.ui.isBuildMenuOpen then
       local option = ui.getBuildMenuOptionAt(x, y)
       if option then
-        state.ui.selectedBuildingType = option.key
-        state.ui.isPlacingBuilding = true
-        state.ui.isBuildMenuOpen = false
-        state.ui._isFreeInitialBuilder = nil
-        return
+        if option.key == 'road' then
+          state.ui.isPlacingRoad = true
+          state.ui.isPlacingBuilding = false
+          state.ui.selectedBuildingType = nil
+          state.ui.isBuildMenuOpen = false
+          state.ui.roadStartTile = nil
+          state.ui._isFreeInitialBuilder = nil
+          return
+        else
+          state.ui.selectedBuildingType = option.key
+          state.ui.isPlacingBuilding = true
+          state.ui.isBuildMenuOpen = false
+          state.ui.buildMenuAlpha = 0
+          state.ui._isFreeInitialBuilder = nil
+          return
+        end
       else
         state.ui.isBuildMenuOpen = false
+        state.ui.buildMenuAlpha = 0
         return
       end
     end
@@ -1141,7 +1415,154 @@ function love.mousepressed(x, y, button)
 end
 
 function love.keypressed(key)
+  if state.ui._startupChoiceOpen then
+    if key == 'left' or key == 'a' then
+      state.ui._startupChoiceFocus = 1
+      return
+    elseif key == 'right' or key == 'd' then
+      state.ui._startupChoiceFocus = 2
+      return
+    elseif key == 'return' or key == 'kpenter' or key == 'space' then
+      startGameWithPreset(state.ui._startupChoiceFocus == 2 and 'retroid' or 'desktop')
+      return
+    elseif key == 'escape' then
+      startGameWithPreset('desktop')
+      return
+    end
+  end
   if state.ui._isFreeInitialBuilder then
+    return
+  end
+  -- Handheld keyboard mimic of controller buttons and left stick
+  if state.ui._handheldMode then
+    if key == 'a' then
+      if state.ui.isBuildMenuOpen and state.ui._buildMenuFocus then
+        local ui_mod = require('src.ui')
+        local opt = ui_mod.buildMenu.options[state.ui._buildMenuFocus]
+        if opt then
+          if opt.key == 'road' then
+            state.ui.isPlacingRoad = true
+            state.ui.isPlacingBuilding = false
+            state.ui.selectedBuildingType = nil
+            state.ui.isBuildMenuOpen = false
+            state.ui.roadStartTile = nil
+          else
+            state.ui.selectedBuildingType = opt.key
+            state.ui.isPlacingBuilding = true
+            state.ui.isBuildMenuOpen = false
+            state.ui.buildMenuAlpha = 0
+          end
+          return
+        end
+      elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
+        local idx = state.ui._missionSelectorFocus or 1
+        local btn = state.ui._missionSelectorButtons[idx]
+        if btn then
+          -- simulate mouse click on the focused mission button
+          love.mousepressed(btn.x + 2, btn.y + 2, 1)
+          return
+        end
+      elseif state.ui.isPaused and ui.pauseMenu and ui.pauseMenu.options then
+        local idx = state.ui._pauseMenuFocus or 1
+        local list = ui.pauseMenu.options
+        local opt = list[idx]
+        if opt then
+          -- trigger pause menu action directly
+          if opt.key == 'resume' then
+            state.ui.isPaused = false
+          elseif opt.key == 'save' then
+            state.ui._saveLoadMode = 'save'
+          elseif opt.key == 'load' then
+            state.ui._saveLoadMode = 'load'
+          elseif opt.key == 'restart' then
+            state.restart()
+            trees.generate(state)
+            missions.init(state)
+          elseif opt.key == 'quit' then
+            love.event.quit()
+          end
+          return
+        end
+      end
+      -- otherwise simulate a left click at virtual cursor
+      local x = (state.ui._virtualCursor and state.ui._virtualCursor.x) or love.mouse.getX()
+      local y = (state.ui._virtualCursor and state.ui._virtualCursor.y) or love.mouse.getY()
+      love.mousepressed(x, y, 1)
+      return
+    elseif key == 'b' then
+      local x = (state.ui._virtualCursor and state.ui._virtualCursor.x) or love.mouse.getX()
+      local y = (state.ui._virtualCursor and state.ui._virtualCursor.y) or love.mouse.getY()
+      love.mousepressed(x, y, 2)
+      return
+    elseif key == 'x' then
+      state.ui.isBuildMenuOpen = not state.ui.isBuildMenuOpen
+      if state.ui.isBuildMenuOpen then
+        state.ui.isPlacingBuilding = false
+        state.ui.selectedBuildingType = nil
+        state.ui.isPlacingRoad = false
+        state.ui.roadStartTile = nil
+        state.ui.isVillagersPanelOpen = false
+        state.ui._buildMenuFocus = 1
+        state.ui._useVirtualCursor = false
+      end
+      return
+    elseif key == 'y' then
+      state.ui.showMissionPanel = not state.ui.showMissionPanel
+      return
+    elseif key == 'up' then
+      if state.ui.isBuildMenuOpen then
+        state.ui._buildMenuFocus = math.max(1, (state.ui._buildMenuFocus or 1) - 1)
+      elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
+        state.ui._missionSelectorFocus = math.max(1, (state.ui._missionSelectorFocus or 1) - 1)
+      elseif state.ui.isPaused and ui.pauseMenu and ui.pauseMenu.options then
+        state.ui._pauseMenuFocus = math.max(1, (state.ui._pauseMenuFocus or 1) - 1)
+      else
+        state.ui._useVirtualCursor = true
+        state.ui._virtualCursor.y = math.max(0, (state.ui._virtualCursor.y or 0) - 24)
+      end
+      return
+    elseif key == 'down' then
+      if state.ui.isBuildMenuOpen then
+        state.ui._buildMenuFocus = math.min(#require('src.ui').buildMenu.options, (state.ui._buildMenuFocus or 1) + 1)
+      elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
+        state.ui._missionSelectorFocus = math.min(#(state.ui._missionSelectorButtons or {}), (state.ui._missionSelectorFocus or 1) + 1)
+      elseif state.ui.isPaused and ui.pauseMenu and ui.pauseMenu.options then
+        state.ui._pauseMenuFocus = math.min(#ui.pauseMenu.options, (state.ui._pauseMenuFocus or 1) + 1)
+      else
+        state.ui._useVirtualCursor = true
+        state.ui._virtualCursor.y = math.min(love.graphics.getHeight(), (state.ui._virtualCursor.y or 0) + 24)
+      end
+      return
+    elseif key == 'up' then
+      if state.ui.isBuildMenuOpen then
+        state.ui._buildMenuFocus = math.max(1, (state.ui._buildMenuFocus or 1) - 1)
+      else
+        state.ui._useVirtualCursor = true
+        state.ui._virtualCursor.y = math.max(0, (state.ui._virtualCursor.y or 0) - 24)
+      end
+      return
+    
+    elseif key == 'left' then
+      if state.ui.isBuildMenuOpen then
+        state.ui._buildMenuFocus = math.max(1, (state.ui._buildMenuFocus or 1) - 1)
+      else
+        state.ui._useVirtualCursor = true
+        state.ui._virtualCursor.x = math.max(0, (state.ui._virtualCursor.x or 0) - 24)
+      end
+      return
+    elseif key == 'right' then
+      if state.ui.isBuildMenuOpen then
+        state.ui._buildMenuFocus = math.min(#require('src.ui').buildMenu.options, (state.ui._buildMenuFocus or 1) + 1)
+      else
+        state.ui._useVirtualCursor = true
+        state.ui._virtualCursor.x = math.min(love.graphics.getWidth(), (state.ui._virtualCursor.x or 0) + 24)
+      end
+      return
+    end
+  end
+  -- Handheld: d-pad/page keys for UI toggles
+  if key == 'tab' then
+    state.ui.isBuildMenuOpen = not state.ui.isBuildMenuOpen
     return
   end
   if key == 'escape' then
@@ -1172,23 +1593,26 @@ function love.keypressed(key)
     state.ui.isFoodPanelOpen = not state.ui.isFoodPanelOpen
     return
   elseif key == 'r' then
-    state.ui.isPlacingRoad = not state.ui.isPlacingRoad
-    state.ui.isPlacingBuilding = false
-    state.ui.selectedBuildingType = nil
-    -- Show instructions as a prompt when road mode is activated
-    if state.ui.isPlacingRoad then
-      state.ui.prompts = state.ui.prompts or {}
-      local tag = 'road_hint'
-      local text = "Roads: Click to set start, click again to extend. Drag along tiles. Starts/ends snap next to buildings. Press R to exit."
-      local found = false
-      for _, p in ipairs(state.ui.prompts) do if p.tag == tag then p.text = text; p.t = 0; p.duration = 6; p.useRealTime = true; found = true; break end end
-      if not found then table.insert(state.ui.prompts, { tag = tag, text = text, t = 0, duration = 6, useRealTime = true }) end
-    else
-      -- Remove the hint when exiting road mode
-      if state.ui.prompts then
-        local newList = {}
-        for _, p in ipairs(state.ui.prompts) do if p.tag ~= 'road_hint' then table.insert(newList, p) end end
-        state.ui.prompts = newList
+    -- In handheld, Roads live in Build Menu; keep keyboard R for desktop only
+    if not state.ui._handheldMode then
+      state.ui.isPlacingRoad = not state.ui.isPlacingRoad
+      state.ui.isPlacingBuilding = false
+      state.ui.selectedBuildingType = nil
+      -- Show instructions as a prompt when road mode is activated
+      if state.ui.isPlacingRoad then
+        state.ui.prompts = state.ui.prompts or {}
+        local tag = 'road_hint'
+        local text = "Roads: Click to set start, click again to extend. Drag along tiles. Starts/ends snap next to buildings. Press R to exit."
+        local found = false
+        for _, p in ipairs(state.ui.prompts) do if p.tag == tag then p.text = text; p.t = 0; p.duration = 6; p.useRealTime = true; found = true; break end end
+        if not found then table.insert(state.ui.prompts, { tag = tag, text = text, t = 0, duration = 6, useRealTime = true }) end
+      else
+        -- Remove the hint when exiting road mode
+        if state.ui.prompts then
+          local newList = {}
+          for _, p in ipairs(state.ui.prompts) do if p.tag ~= 'road_hint' then table.insert(newList, p) end end
+          state.ui.prompts = newList
+        end
       end
     end
   elseif key == 'v' then
@@ -1223,6 +1647,14 @@ function love.keypressed(key)
     state.camera.scale = math.min(state.camera.maxScale or 2.5, (state.camera.scale or 1) + 0.1)
   elseif key == '-' then
     state.camera.scale = math.max(state.camera.minScale or 0.5, (state.camera.scale or 1) - 0.1)
+  elseif key == 'pageup' and state.ui._handheldMode then
+    -- Map shoulder equivalent for speed up on handheld keyboards
+    local map = { [1]=1,[2]=2,[4]=4,[8]=8 }
+    local s = state.time.speed or 1
+    if s == 1 then state.time.speed = 2 elseif s == 2 then state.time.speed = 4 elseif s == 4 then state.time.speed = 8 end
+  elseif key == 'pagedown' and state.ui._handheldMode then
+    local s = state.time.speed or 1
+    if s == 8 then state.time.speed = 4 elseif s == 4 then state.time.speed = 2 elseif s == 2 then state.time.speed = 1 end
   elseif key == 'g' then
     state.ui.forceGrid = not state.ui.forceGrid
   elseif key == 'F5' or key == 's' and (love.keyboard.isDown('lctrl') or love.keyboard.isDown('rctrl')) then
@@ -1254,6 +1686,134 @@ function love.keypressed(key)
       state.ui.selectedBuildingType = sel
       state.ui.isPlacingBuilding = true
       state.ui.isBuildMenuOpen = false
+    end
+  end
+end
+
+-- Mouse controls the virtual cursor in handheld mode
+function love.mousemoved(x, y, dx, dy, istouch)
+  if state.ui._handheldMode then
+    if state.ui.isBuildMenuOpen or state.ui.isMissionSelectorOpen or state.ui.isVillagersPanelOpen or state.ui.isBuildQueueOpen or state.ui.isFoodPanelOpen or state.ui.isPaused then return end
+    state.ui._useVirtualCursor = true
+    state.ui._virtualCursor = state.ui._virtualCursor or { x = 0, y = 0 }
+    state.ui._virtualCursor.x = utils.clamp(x, 0, love.graphics.getWidth())
+    state.ui._virtualCursor.y = utils.clamp(y, 0, love.graphics.getHeight())
+  end
+end
+
+function love.gamepadpressed(joy, button)
+  gamepad = joy
+  if state.ui._startupChoiceOpen then
+    if button == 'dpleft' then state.ui._startupChoiceFocus = 1 return end
+    if button == 'dpright' then state.ui._startupChoiceFocus = 2 return end
+    if button == 'a' then
+      startGameWithPreset(state.ui._startupChoiceFocus == 2 and 'retroid' or 'desktop')
+      return
+    end
+  end
+  if button == 'a' then
+    if state.ui.isBuildMenuOpen and state.ui._buildMenuFocus then
+      local ui_mod = require('src.ui')
+      local opt = ui_mod.buildMenu.options[state.ui._buildMenuFocus]
+      if opt then
+        state.ui.selectedBuildingType = opt.key
+        state.ui.isPlacingBuilding = true
+        state.ui.isBuildMenuOpen = false
+        state.ui.buildMenuAlpha = 0
+        return
+      end
+    end
+    local x, y = state.ui._virtualCursor.x or 0, state.ui._virtualCursor.y or 0
+    love.mousepressed(x, y, 1)
+  elseif button == 'b' then
+    local x, y = state.ui._virtualCursor.x or 0, state.ui._virtualCursor.y or 0
+    love.mousepressed(x, y, 2)
+  elseif button == 'x' then
+    state.ui.isBuildMenuOpen = not state.ui.isBuildMenuOpen
+    if state.ui.isBuildMenuOpen then
+      state.ui.isPlacingBuilding = false
+      state.ui.selectedBuildingType = nil
+      state.ui.isPlacingRoad = false
+      state.ui.roadStartTile = nil
+      state.ui.isVillagersPanelOpen = false
+      state.ui._buildMenuFocus = 1
+      -- disable virtual cursor while navigating menu by stick/buttons
+      state.ui._useVirtualCursor = false
+    end
+  elseif button == 'dpup' then
+    if state.ui.isBuildMenuOpen then
+      state.ui._buildMenuFocus = math.max(1, (state.ui._buildMenuFocus or 1) - 1)
+    elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
+      state.ui._missionSelectorFocus = math.max(1, (state.ui._missionSelectorFocus or 1) - 1)
+    elseif state.ui.isPaused and ui.pauseMenu and ui.pauseMenu.options then
+      state.ui._pauseMenuFocus = math.max(1, (state.ui._pauseMenuFocus or 1) - 1)
+    end
+  elseif button == 'dpdown' then
+    if state.ui.isBuildMenuOpen then
+      state.ui._buildMenuFocus = math.min(#require('src.ui').buildMenu.options, (state.ui._buildMenuFocus or 1) + 1)
+    elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
+      state.ui._missionSelectorFocus = math.min(#(state.ui._missionSelectorButtons or {}), (state.ui._missionSelectorFocus or 1) + 1)
+    elseif state.ui.isPaused and ui.pauseMenu and ui.pauseMenu.options then
+      state.ui._pauseMenuFocus = math.min(#ui.pauseMenu.options, (state.ui._pauseMenuFocus or 1) + 1)
+    end
+  elseif button == 'y' then
+    -- Toggle missions panel (handheld repurpose)
+    state.ui.showMissionPanel = not state.ui.showMissionPanel
+  elseif button == 'start' then
+    if state.ui.isFoodPanelOpen then
+      state.ui.isFoodPanelOpen = false
+      state.ui.isPaused = false
+    else
+      state.ui.isPaused = not state.ui.isPaused
+    end
+  elseif button == 'back' or button == 'guide' then
+    state.ui.isVillagersPanelOpen = not state.ui.isVillagersPanelOpen
+    state.ui.isBuildMenuOpen = false
+    state.ui.isPlacingBuilding = false
+    state.ui.selectedBuildingType = nil
+    state.ui.isPlacingRoad = false
+    state.ui.roadStartTile = nil
+  elseif button == 'leftshoulder' then
+    local s = state.time.speed or 1
+    if s == 8 then state.time.speed = 4 elseif s == 4 then state.time.speed = 2 elseif s == 2 then state.time.speed = 1 end
+  elseif button == 'rightshoulder' then
+    local s = state.time.speed or 1
+    if s == 1 then state.time.speed = 2 elseif s == 2 then state.time.speed = 4 elseif s == 4 then state.time.speed = 8 end
+  end
+end
+
+function love.gamepadaxis(joy, axis, value)
+  gamepad = joy
+  -- D-pad emulation varies; also support axes for menu focus
+  if state.ui.isBuildMenuOpen then
+    if (axis == 'lefty' or axis == 'dpdown') and value > 0.5 then
+      state.ui._buildMenuFocus = math.min(#require('src.ui').buildMenu.options, (state.ui._buildMenuFocus or 1) + 1)
+    elseif (axis == 'lefty' or axis == 'dpup') and value < -0.5 then
+      state.ui._buildMenuFocus = math.max(1, (state.ui._buildMenuFocus or 1) - 1)
+    elseif (axis == 'leftx' or axis == 'dpright') and value > 0.5 then
+      local cols = 2
+      local next = (state.ui._buildMenuFocus or 1) + 1
+      state.ui._buildMenuFocus = math.min(#require('src.ui').buildMenu.options, next)
+    elseif (axis == 'leftx' or axis == 'dpleft') and value < -0.5 then
+      local prev = (state.ui._buildMenuFocus or 1) - 1
+      state.ui._buildMenuFocus = math.max(1, prev)
+    end
+  end
+  -- Move virtual cursor with left stick when enabled
+  if state.ui._useVirtualCursor and state.ui._virtualCursor then
+    local ax = gamepad and (gamepad:getGamepadAxis("leftx") or 0) or 0
+    local ay = gamepad and (gamepad:getGamepadAxis("lefty") or 0) or 0
+    local speed = 400
+    state.ui._virtualCursor.x = utils.clamp((state.ui._virtualCursor.x or 0) + ax * speed * (1/60), 0, love.graphics.getWidth())
+    state.ui._virtualCursor.y = utils.clamp((state.ui._virtualCursor.y or 0) + ay * speed * (1/60), 0, love.graphics.getHeight())
+  end
+  -- Right stick sets zoom velocity; applied smoothly in update
+  if state.ui._handheldMode and (axis == 'righty' or axis == 'rightx') then
+    local dz = (gamepad and (gamepad:getGamepadAxis('righty') or 0) or 0)
+    if math.abs(dz) > 0.1 then
+      state.ui._zoomVel = -dz * 1.1 -- slightly slower zoom for precision
+    else
+      state.ui._zoomVel = 0
     end
   end
 end

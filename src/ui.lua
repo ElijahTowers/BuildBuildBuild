@@ -2,11 +2,66 @@
 -- UI elements: build button, build menu, HUD, pause menu
 
 local constants = require('src.constants')
+local state = require('src.state')
 local utils = require('src.utils')
 local colors = constants.colors
 local buildings = require('src.buildings')
 
 local ui = {}
+
+-- Pointer helper: returns virtual cursor if enabled (handheld), else mouse
+function ui.getPointer()
+  if state.ui and state.ui._handheldMode and state.ui._useVirtualCursor and state.ui._virtualCursor then
+    return state.ui._virtualCursor.x or 0, state.ui._virtualCursor.y or 0
+  end
+  return love.mouse.getPosition()
+end
+
+-- Small-screen helpers for handhelds
+local function isSmallScreen()
+  local w, h = love.graphics.getDimensions()
+  return (state.ui and (state.ui._forceSmallScreen or state.ui._handheldMode)) or (w < 1000) or (h < 600)
+end
+
+local function pushUIFont()
+  ui._fontStack = ui._fontStack or {}
+  table.insert(ui._fontStack, love.graphics.getFont())
+  if isSmallScreen() then
+    ui._smallFont = ui._smallFont or love.graphics.newFont(18)
+    love.graphics.setFont(ui._smallFont)
+  end
+end
+
+local function pushTinyFont()
+  ui._fontStack = ui._fontStack or {}
+  table.insert(ui._fontStack, love.graphics.getFont())
+  ui._tinyFont = ui._tinyFont or love.graphics.newFont(12)
+  love.graphics.setFont(ui._tinyFont)
+end
+
+local function popUIFont()
+  ui._fontStack = ui._fontStack or {}
+  local n = #ui._fontStack
+  if n > 0 then
+    local f = ui._fontStack[n]
+    ui._fontStack[n] = nil
+    love.graphics.setFont(f)
+  end
+end
+
+-- Truncate text to a maximum pixel width using the current font
+local function truncateToWidth(text, maxWidth)
+  local font = love.graphics.getFont()
+  if font:getWidth(text) <= maxWidth then return text end
+  local ell = '…'
+  local ellW = font:getWidth(ell)
+  local s = text
+  while #s > 0 and font:getWidth(s) + ellW > maxWidth do
+    s = s:sub(1, #s - 1)
+  end
+  if #s == 0 then return ell end
+  return s .. ell
+end
 
 ui.buildButton = { x = 16, y = 16, width = 120, height = 40, label = "Build" }
 ui.roadButton = { x = 16 + 120 + 8, y = 16, width = 120, height = 40, label = "Roads" }
@@ -35,7 +90,8 @@ ui.buildMenu = {
     { key = "builder", label = "Builders Workplace", color = { 0.7, 0.5, 0.3, 1.0 } },
     { key = "farm", label = "Farm", color = { 0.7, 0.8, 0.3, 1.0 } },
     { key = "research", label = "Research Center", color = { 0.5, 0.6, 0.9, 1.0 } },
-    { key = "flowerbed", label = "Flower Bed (Decor)", color = { 0.95, 0.65, 0.75, 1.0 } }
+    { key = "flowerbed", label = "Flower Bed (Decor)", color = { 0.95, 0.65, 0.75, 1.0 } },
+    { key = "road", label = "Roads", color = { 0.2, 0.2, 0.22, 1.0 } }
   }
 }
 
@@ -114,6 +170,15 @@ function ui.isOverBuildMenu(mx, my)
 end
 
 function ui.getBuildMenuOptionAt(mx, my)
+  if state.ui._handheldMode and state.ui._buildMenuBounds then
+    for _, option in ipairs(state.ui._buildMenuBounds) do
+      local b = option._bounds
+      if b and utils.isPointInRect(mx, my, b.x, b.y, b.w, b.h) then
+        return option
+      end
+    end
+    return nil
+  end
   local m = ui.buildMenu
   local optionHeight = m.optionHeight
   local x, y, w, h = ui.getBuildMenuRect()
@@ -130,6 +195,7 @@ function ui.getBuildMenuOptionAt(mx, my)
 end
 
 function ui.drawTopButtons(state)
+  if state.ui._handheldMode then return end
   -- Fancy skin helpers
   local function drawFancyPanel(x, y, w, h)
     love.graphics.setColor(0, 0, 0, 0.25)
@@ -144,7 +210,7 @@ function ui.drawTopButtons(state)
   end
 
   local function drawButton(b, active, hint)
-    local mx, my = love.mouse.getPosition()
+    local mx, my = ui.getPointer()
     local hovered = utils.isPointInRect(mx, my, b.x, b.y, b.width, b.height)
     -- parchment-style button
     love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
@@ -232,6 +298,53 @@ function ui.drawBuildMenu(state, buildingDefs)
   local m = ui.buildMenu
   local x, y, w, h = ui.getBuildMenuRect()
 
+  -- Handheld: draw as compact 2-column grid centered near bottom
+  if state.ui._handheldMode then
+    local screenW, screenH = love.graphics.getDimensions()
+    local colW, rowH = 120, 34
+    local gap = 8
+    local cols = 2
+    local opts = m.options
+    local count = #opts
+    love.graphics.setColor(0, 0, 0, 0.25 * a)
+    love.graphics.rectangle('fill', 0, 0, screenW, screenH)
+    local rows = math.ceil(count / cols)
+    local totalW = cols * colW + (cols - 1) * gap
+    local totalH = rows * rowH + (rows - 1) * gap
+    local startX = (screenW - totalW) / 2
+    local startY = math.max(40, screenH - totalH - 40)
+    -- Use tiny font to ensure labels fit within buttons
+    pushTinyFont()
+    for i, opt in ipairs(opts) do
+      local col = (i - 1) % cols
+      local row = math.floor((i - 1) / cols)
+      local ox = startX + col * (colW + gap)
+      local oy = startY + row * (rowH + gap)
+      local ow, oh = colW, rowH
+      -- panel
+      love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
+      love.graphics.rectangle('fill', ox - 2, oy + 2, ow + 4, oh + 4, 8, 8)
+      love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
+      love.graphics.rectangle('fill', ox, oy, ow, oh, 8, 8)
+      love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
+      love.graphics.rectangle('line', ox, oy, ow, oh, 8, 8)
+      -- highlight focused item
+      if state.ui._buildMenuFocus == i then
+        love.graphics.setColor(0.20, 0.78, 0.30, 0.22)
+        love.graphics.rectangle('fill', ox + 3, oy + 3, ow - 6, oh - 6, 6, 6)
+      end
+      -- label
+      love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+      local label = truncateToWidth(opt.label, ow - 16)
+      love.graphics.printf(label, ox + 8, oy + 8, ow - 16, 'center')
+      opt._bounds = { x = ox, y = oy, w = ow, h = oh }
+    end
+    popUIFont()
+    -- store for hit testing
+    state.ui._buildMenuBounds = opts
+    return
+  end
+
   love.graphics.setColor(0, 0, 0, 0.2 * a)
   love.graphics.rectangle('fill', 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
 
@@ -252,13 +365,15 @@ function ui.drawBuildMenu(state, buildingDefs)
   love.graphics.rectangle('line', x, y, w, h, 10, 10)
 
   local optionHeight = m.optionHeight
+  if isSmallScreen() then optionHeight = math.max(40, optionHeight - 6) end
   for index, option in ipairs(m.options) do
     local ox = x + 12
     local oy = y + 12 + (index - 1) * (optionHeight + 8)
     local ow = w - 24
     local oh = optionHeight
-    local mx, my = love.mouse.getPosition()
+    local mx, my = ui.getPointer()
     local hovered = utils.isPointInRect(mx, my, ox, oy, ow, oh)
+    local focused = (state.ui._buildMenuFocus == index)
 
     -- parchment-style option row
     love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
@@ -267,7 +382,7 @@ function ui.drawBuildMenu(state, buildingDefs)
     love.graphics.rectangle("fill", ox, oy, ow, oh, 6, 6)
     love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
     love.graphics.rectangle("line", ox, oy, ow, oh, 6, 6)
-    if hovered then
+    if hovered or focused then
       love.graphics.setColor(0.20, 0.78, 0.30, 0.15)
       love.graphics.rectangle('fill', ox + 3, oy + 3, ow - 6, oh - 6, 4, 4)
     end
@@ -283,12 +398,14 @@ function ui.drawBuildMenu(state, buildingDefs)
     love.graphics.pop()
 
     love.graphics.setColor(0.18, 0.11, 0.06, 1.0 * a)
+    pushUIFont()
     local def = buildingDefs[option.key]
     local costText = ""
     if def and def.cost and def.cost.wood then
       costText = string.format(" (Cost: %d wood)", def.cost.wood)
     end
     love.graphics.print(option.label .. costText, ox + 52, oy + 12)
+    popUIFont()
 
     -- shortcuts for quick build (if defined)
     local shortcut = (option.key == 'house' and 'H') or (option.key == 'lumberyard' and 'L') or (option.key == 'warehouse' and 'W') or (option.key == 'market' and 'M') or (option.key == 'builder' and 'B') or (option.key == 'farm' and 'F') or nil
@@ -307,7 +424,8 @@ function ui.drawVillagersPanel(state)
   love.graphics.setColor(0, 0, 0, 0.35)
   love.graphics.rectangle('fill', 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
 
-  local w, h = 520, 200
+  local handheld = state.ui._handheldMode
+  local w, h = handheld and 360 or 520, handheld and 180 or 200
   local screenW, screenH = love.graphics.getDimensions()
   local x = (screenW - w) / 2
   local y = (screenH - h) / 2
@@ -315,11 +433,11 @@ function ui.drawVillagersPanel(state)
 
   love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
   local pop = state.game.population
-  love.graphics.print(string.format('Villagers: %d / %d assigned', pop.assigned or 0, pop.total or 0), x + 12, y + 12)
-  love.graphics.print(string.format('Capacity: %d', pop.capacity or 0), x + 12, y + 32)
+  if handheld then pushTinyFont() end
+  love.graphics.print(string.format('Villagers: %d/%d  Cap:%d', pop.assigned or 0, pop.total or 0, pop.capacity or 0), x + 12, y + 12)
 
   local btns = {}
-  local rowY = y + 64
+  local rowY = y + (handheld and 48 or 64)
   for _, b in ipairs(state.game.buildings) do
     if b.type == 'lumberyard' or b.type == 'builder' or b.type == 'farm' or b.type == 'research' then
       local name = (b.type == 'lumberyard') and 'Lumberyard' or (b.type == 'builder' and 'Builders Workplace' or (b.type == 'farm' and 'Farm' or 'Research Center'))
@@ -327,8 +445,8 @@ function ui.drawVillagersPanel(state)
         or (b.type == 'builder' and (state.buildingDefs.builder.numWorkers or 0)
         or (b.type == 'farm' and (state.buildingDefs.farm.numWorkers or 0) or (state.buildingDefs.research.numWorkers or 0)))
       love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
-      love.graphics.print(string.format('%s (%d/%d)  Location: (%d,%d)', name, b.assigned or 0, maxSlots, b.tileX, b.tileY), x + 12, rowY)
-      local btnW, btnH = 28, 24
+      love.graphics.print(string.format('%s %d/%d  (%d,%d)', name, b.assigned or 0, maxSlots, b.tileX, b.tileY), x + 12, rowY)
+      local btnW, btnH = handheld and 22 or 28, handheld and 20 or 24
       local remX, remY = x + w - 76, rowY - 4
       local addX, addY = x + w - 40, rowY - 4
       love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
@@ -348,25 +466,28 @@ function ui.drawVillagersPanel(state)
       love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
       love.graphics.printf('+', addX, addY + 4, btnW, 'center')
       table.insert(btns, { type = b.type, b = b, add = { x = addX, y = addY, w = btnW, h = btnH }, rem = { x = remX, y = remY, w = btnW, h = btnH } })
-      rowY = rowY + 28
+      rowY = rowY + (handheld and 22 or 28)
     end
   end
   state.ui._villagersPanelButtons = btns
+  if handheld then popUIFont() end
 end
 
 function ui.drawBuildQueue(state)
   if not state.ui.isBuildQueueOpen then return end
   local screenW, screenH = love.graphics.getDimensions()
-  local w, h = 560, 260
+  local handheld = state.ui._handheldMode
+  local w, h = handheld and 460 or 560, handheld and 220 or 260
   -- Always center the panel in the middle of the screen
   local x = (screenW - w) / 2
   local y = (screenH - h) / 2
   drawParchmentPanel(x, y, w, h)
   love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+  if handheld then pushTinyFont() end
   love.graphics.print('Build Queue', x + 12, y + 12)
   local headerY = y + 36
-  local rowH = 34
-  local btnW, btnH = 24, 20
+  local rowH = handheld and 26 or 34
+  local btnW, btnH = handheld and 18 or 24, handheld and 16 or 20
   state.ui._queueButtons = {}
   state.ui._queueHoverId = nil
   state.ui._queueLayout = { headerY = headerY, rowH = rowH, x = x, y = y, w = w, h = h }
@@ -380,7 +501,7 @@ function ui.drawBuildQueue(state)
   end
   -- draw in current queue order; top is highest priority
   local drag = state.ui._queueDrag
-  local mx, my = love.mouse.getPosition()
+  local mx, my = ui.getPointer()
   local dropIndex = nil
   for i, q in ipairs(qraw) do
     local b = byId[q.id]
@@ -401,7 +522,7 @@ function ui.drawBuildQueue(state)
         if hovered then love.graphics.setColor(0.20, 0.78, 0.30, 0.12); love.graphics.rectangle('fill', rowRect.x+2, rowRect.y+2, rowRect.w-4, rowRect.h-4, 4, 4) end
         love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
         -- icon
-        buildings.drawIcon(b.type, x + 18, ry + (rowH/2), 24, 0)
+        buildings.drawIcon(b.type, x + 18, ry + (rowH/2), handheld and 18 or 24, 0)
         -- name + coords
         local status
         if b.construction and b.construction.complete then status = 'Complete'
@@ -409,7 +530,7 @@ function ui.drawBuildQueue(state)
         elseif b._claimedBy then status = 'Building…' else status = 'Ready' end
         love.graphics.print(string.format('%s  (%d,%d)  [%s]', b.type, b.tileX, b.tileY, status), x + 44, ry + 8)
         -- priority up/down
-        local upx = x + w - 200; local upy = ry + 6
+        local upx = x + w - (handheld and 180 or 200); local upy = ry + (handheld and 4 or 6)
         local dnx = upx + btnW + 6; local dny = upy
         love.graphics.setColor(0.35,0.22,0.12,1.0)
         love.graphics.rectangle('fill', upx-2, upy+2, btnW+4, btnH+4, 6, 6)
@@ -428,9 +549,9 @@ function ui.drawBuildQueue(state)
         love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
         love.graphics.printf('v', dnx, dny + 2, btnW, 'center')
         -- pause/resume
-        local px = x + w - 140; local py = upy
+        local px = x + w - (handheld and 120 or 140); local py = upy
         local label = (q.paused and 'Resume') or 'Pause'
-        local pw = 64
+        local pw = handheld and 56 or 64
         love.graphics.setColor(0.35,0.22,0.12,1.0)
         love.graphics.rectangle('fill', px-2, py+2, pw+4, btnH+4, 6, 6)
         love.graphics.setColor(0.95,0.82,0.60,1.0)
@@ -440,7 +561,7 @@ function ui.drawBuildQueue(state)
         love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
         love.graphics.printf(label, px, py + 2, pw, 'center')
         -- remove
-        local rx = x + w - 70; local ryb = upy
+        local rx = x + w - (handheld and 64 or 70); local ryb = upy
         love.graphics.setColor(0.35,0.22,0.12,1.0)
         love.graphics.rectangle('fill', rx-2, ryb+2, 60+4, btnH+4, 6, 6)
         love.graphics.setColor(0.90, 0.35, 0.25, 1.0)
@@ -495,6 +616,7 @@ function ui.drawBuildQueue(state)
   else
     state.ui._queueDropIndex = nil
   end
+  if handheld then popUIFont() end
 end
 -- Minimap (top-right). Shows roads, trees, buildings, and camera viewport.
 function ui.drawMiniMap(state)
@@ -504,13 +626,13 @@ function ui.drawMiniMap(state)
 
   local padding = 16
   local screenW, screenH = love.graphics.getDimensions()
-  local desiredW = 180
+  local desiredW = isSmallScreen() and 140 or 180
   local scale = desiredW / world.tilesX
   local mapW = desiredW
   local mapH = world.tilesY * scale
 
   -- Place at top-right; if villagers panel open, place below it
-  local yOffset = 16
+  local yOffset = isSmallScreen() and 12 or 16
   if state.ui.isVillagersPanelOpen then
     yOffset = yOffset + 140 + 8 -- villagers panel height + gap
   end
@@ -585,14 +707,21 @@ function ui.drawMiniMap(state)
 end
 
 function ui.drawHUD(state)
-  local x = ui.villagersButton.x + ui.villagersButton.width + 16
-  local y = 16
-  local w = 600
-  local h = 100
+  pushUIFont()
+  local handheld = state.ui._handheldMode
+  local x = handheld and 12 or (ui.villagersButton.x + ui.villagersButton.width + 16)
+  local y = handheld and 8 or 16
+  local w = handheld and 260 or 600
+  local h = handheld and 72 or 100
   -- parchment theme like objectives
-  drawParchmentPanel(x, y, w, h)
+  if not handheld then
+    drawParchmentPanel(x, y, w, h)
+    -- expose HUD bounds so prompts can anchor just below it on handheld/desktop
+    state.ui._hudBounds = { x = x, y = y, w = w, h = h }
+  end
 
   love.graphics.setColor(colors.text)
+  if handheld then pushTinyFont() end
   local baseWood = math.floor(state.game.resources.wood + 0.5)
   local storedWood = 0
   for _, b in ipairs(state.game.buildings) do
@@ -601,8 +730,43 @@ function ui.drawHUD(state)
     end
   end
   local totalWood = baseWood + storedWood
+  local lineX = x + 12
+  local lineY = y + 12
   love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
-  love.graphics.print(string.format("Wood: %d", totalWood), x + 12, y + 12)
+  if handheld then
+    -- Compose single-line HUD and size parchment to fit
+    local font = love.graphics.getFont()
+    local parts = {}
+    local woodStr = string.format("Wood:%d", totalWood)
+    table.insert(parts, woodStr)
+    local foodStr = string.format("Food:%d", totalFood)
+    table.insert(parts, foodStr)
+    local hasResearch = false
+    for _, b in ipairs(state.game.buildings) do if b.type == 'research' then hasResearch = true break end end
+    local researchStr
+    if hasResearch then
+      local R = state.game.research or { progress = 0, required = 60 }
+      researchStr = string.format("Res:%d/%d", math.floor(R.progress or 0), R.required or 60)
+      table.insert(parts, researchStr)
+    end
+    local timeStr = string.format("%02d:%02d%s", hours, minutes, isDay and "D" or "N")
+    table.insert(parts, timeStr)
+    local speedStr = string.format("%dx", state.time.speed or 1)
+    table.insert(parts, speedStr)
+
+    local sep = "   "
+    local label = table.concat(parts, sep)
+    local textW = font:getWidth(label)
+    local pad = 12
+    local neededW = textW + pad * 2
+    -- redraw parchment with exact width needed
+    w = math.min(neededW, love.graphics.getWidth() - x - 12)
+    drawParchmentPanel(x, y, w, h)
+    state.ui._hudBounds = { x = x, y = y, w = w, h = h }
+    love.graphics.print(label, lineX, lineY)
+  else
+    love.graphics.print(string.format("Wood: %d", totalWood), lineX, lineY)
+  end
   local baseFood = math.floor((state.game.resources.food or 0) + 0.5)
   local storedFood = 0
   for _, b in ipairs(state.game.buildings) do
@@ -612,17 +776,21 @@ function ui.drawHUD(state)
   end
   local totalFood = baseFood + storedFood
   local foodLabel = string.format("Food: %d", totalFood)
-  love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
-  love.graphics.print(foodLabel, x + 12, y + 32)
-  -- clickable bounds for food
-  local fw = love.graphics.getFont():getWidth(foodLabel)
-  state.ui._foodButton = { x = x + 10, y = y + 30, w = fw + 6, h = 18 }
+  if not handheld then
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+    love.graphics.print(foodLabel, x + 12, y + 32)
+    local fw = love.graphics.getFont():getWidth(foodLabel)
+    state.ui._foodButton = { x = x + 10, y = y + 30, w = fw + 6, h = 18 }
+  else
+    local fw = love.graphics.getFont():getWidth(foodLabel)
+    state.ui._foodButton = { x = x + 10, y = y + 10, w = fw + 6, h = 18 }
+  end
 
   -- Research progress (if any Research Center exists)
   do
     local hasResearch = false
     for _, b in ipairs(state.game.buildings) do if b.type == 'research' then hasResearch = true break end end
-    if hasResearch then
+    if hasResearch and (not handheld) then
       local R = state.game.research or { points = 0, required = 60, progress = 0 }
       local label = string.format("Research: %s %d/%d", R.target or 'Project', math.floor(R.progress or 0), R.required or 60)
       love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
@@ -645,11 +813,13 @@ function ui.drawHUD(state)
   local tnorm = state.time.normalized
   local isDay = (tnorm >= 0.25 and tnorm < 0.75)
   love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
-  love.graphics.print(string.format("Time: %02d:%02d (%s)", hours, minutes, isDay and "Day" or "Night"), x + 220, y + 12)
-  love.graphics.print(string.format("Speed: %dx", state.time.speed or 1), x + 400, y + 12)
+  if not handheld then
+    love.graphics.print(string.format("Time: %02d:%02d (%s)", hours, minutes, isDay and "Day" or "Night"), x + 220, y + 12)
+    love.graphics.print(string.format("Speed: %dx", state.time.speed or 1), x + 400, y + 12)
+  end
 
-  local btnW, btnH = 36, 22
-  local s1x = x + 390; local s1y = y + 52
+  local btnW, btnH = handheld and 24 or 36, handheld and 16 or 22
+  local s1x = x + (handheld and 14 or 390); local s1y = y + (handheld and (h - 30) or 52)
   local s2x = s1x + btnW + 6; local s2y = s1y
   local s4x = s2x + btnW + 6; local s4y = s1y
   local s8x = s4x + btnW + 6; local s8y = s1y
@@ -668,18 +838,22 @@ function ui.drawHUD(state)
     love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
     love.graphics.printf(label, xb, yb + 4, btnW, 'center')
   end
-  drawSpeed(s1x, s1y, '1x', (state.time.speed or 1) == 1)
-  drawSpeed(s2x, s2y, '2x', (state.time.speed or 1) == 2)
-  drawSpeed(s4x, s4y, '4x', (state.time.speed or 1) == 4)
-  drawSpeed(s8x, s8y, '8x', (state.time.speed or 1) == 8)
-  state.ui._speedButtons = {
-    s1 = { x = s1x, y = s1y, w = btnW, h = btnH, v = 1 },
-    s2 = { x = s2x, y = s2y, w = btnW, h = btnH, v = 2 },
-    s4 = { x = s4x, y = s4y, w = btnW, h = btnH, v = 4 },
-    s8 = { x = s8x, y = s8y, w = btnW, h = btnH, v = 8 }
-  }
+  if not handheld then
+    drawSpeed(s1x, s1y, '1x', (state.time.speed or 1) == 1)
+    drawSpeed(s2x, s2y, '2x', (state.time.speed or 1) == 2)
+    drawSpeed(s4x, s4y, '4x', (state.time.speed or 1) == 4)
+    drawSpeed(s8x, s8y, '8x', (state.time.speed or 1) == 8)
+    state.ui._speedButtons = {
+      s1 = { x = s1x, y = s1y, w = btnW, h = btnH, v = 1 },
+      s2 = { x = s2x, y = s2y, w = btnW, h = btnH, v = 2 },
+      s4 = { x = s4x, y = s4y, w = btnW, h = btnH, v = 4 },
+      s8 = { x = s8x, y = s8y, w = btnW, h = btnH, v = 8 }
+    }
+  else
+    state.ui._speedButtons = nil
+  end
 
-  if state.ui.isPlacingBuilding and state.ui.selectedBuildingType and not state.ui.isPaused then
+  if (not handheld) and state.ui.isPlacingBuilding and state.ui.selectedBuildingType and not state.ui.isPaused then
     local def = state.buildingDefs[state.ui.selectedBuildingType]
     if def and def.cost and def.cost.wood then
       local costStr = string.format("Cost: %d wood", def.cost.wood)
@@ -695,12 +869,14 @@ function ui.drawHUD(state)
   -- (removed) road instructions are now shown as a prompt when road mode is toggled
 
   -- demolish hint
-  if state.ui.isDemolishMode then
+  if (not handheld) and state.ui.isDemolishMode then
     love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
     love.graphics.print("Demolish Mode: click a building to remove (refund 50%)", x + 12, y + 60)
   end
 
-  ui.drawVillagersPanel(state)
+  if handheld then popUIFont() end
+  if not handheld then ui.drawVillagersPanel(state) end
+  popUIFont()
 end
 
 function ui.drawFoodPanel(state)
@@ -806,6 +982,7 @@ end
 function ui.drawMissionPanel(state)
   local M = state.mission
   if not M or not M.active then return end
+  pushUIFont()
   -- If mission selector is open, draw it instead for clarity
   if state.ui.isMissionSelectorOpen then
     local screenW, screenH = love.graphics.getDimensions()
@@ -833,10 +1010,11 @@ function ui.drawMissionPanel(state)
       { label = 'Stage 7: Master Planner', id = 7 }
     }
     state.ui._missionSelectorButtons = {}
+    state.ui._missionSelectorFocus = state.ui._missionSelectorFocus or 1
     local oy = y + 40
     for i, opt in ipairs(options) do
       local btn = { x = x + 12, y = oy, w = w - 24, h = 30, id = opt.id, label = opt.label }
-      local mx, my = love.mouse.getPosition()
+      local mx, my = ui.getPointer()
       local hovered = utils.isPointInRect(mx, my, btn.x, btn.y, btn.w, btn.h)
       love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
       love.graphics.rectangle('fill', btn.x - 2, btn.y + 2, btn.w + 4, btn.h + 4, 8, 8)
@@ -844,7 +1022,7 @@ function ui.drawMissionPanel(state)
       love.graphics.rectangle('fill', btn.x, btn.y, btn.w, btn.h, 8, 8)
       love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
       love.graphics.rectangle('line', btn.x, btn.y, btn.w, btn.h, 8, 8)
-      if hovered then love.graphics.setColor(0.20, 0.78, 0.30, 0.18); love.graphics.rectangle('fill', btn.x+2, btn.y+2, btn.w-4, btn.h-4, 6, 6) end
+      if hovered or state.ui._missionSelectorFocus == i then love.graphics.setColor(0.20, 0.78, 0.30, 0.18); love.graphics.rectangle('fill', btn.x+2, btn.y+2, btn.w-4, btn.h-4, 6, 6) end
       love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
       love.graphics.printf(opt.label, btn.x, btn.y + 8, btn.w, 'center')
       table.insert(state.ui._missionSelectorButtons, btn)
@@ -854,10 +1032,12 @@ function ui.drawMissionPanel(state)
   end
   -- Layout calculations with dynamic height and text wrapping
   local screenW, screenH = love.graphics.getDimensions()
-  -- Scale panel width with screen size for readability
-  local w = math.min(560, math.max(420, math.floor(screenW * 0.45)))
+  -- Scale panel width; smaller on handheld
+  local handheld = state.ui._handheldMode
+  if handheld then pushTinyFont() end
+  local w = handheld and math.min(360, math.max(300, math.floor(screenW * 0.45))) or math.min(560, math.max(420, math.floor(screenW * 0.45)))
   local padding = 12
-  local titleH = 24
+  local titleH = handheld and 18 or 24
   local font = love.graphics.getFont()
   local lineH = font:getHeight()
   local contentH = titleH + 6
@@ -896,7 +1076,7 @@ function ui.drawMissionPanel(state)
     -- draw scroll-like strip
     -- Recompute wrapped lines per objective to size the strip correctly
     local _, wrapped = font:getWrap(o.text or '', textW)
-    local rowH = math.max(24, #wrapped * lineH + 2)
+    local rowH = math.max(handheld and 18 or 24, #wrapped * lineH + 2)
     local stripW = w - 24
     local sx = x + 12
     local sy = oy - 4
@@ -935,7 +1115,7 @@ function ui.drawMissionPanel(state)
     -- Progress bar (pixel)
     local blockBottom = sy + rowH + 2
     if o.target and o.target > 1 then
-      local bw, bh = stripW - 28, 8
+      local bw, bh = stripW - 28, handheld and 6 or 8
       local bx, by = sx + 14, blockBottom
       local p = math.min(1, (o.current or 0) / o.target)
       love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
@@ -962,26 +1142,35 @@ function ui.drawMissionPanel(state)
       end
       local lw = font:getWidth(label)
       love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
-      love.graphics.print(label, bx + bw - lw, by - 12)
-      oy = by + bh + 12
+      love.graphics.print(label, bx + bw - lw, by - (handheld and 10 or 12))
+      oy = by + bh + (handheld and 10 or 12)
     else
       oy = blockBottom + 12
     end
   end
   if M.completed then
     love.graphics.setColor(1, 1, 0.6, 1)
-    love.graphics.print('Completed!', x + 12, y + h - 22)
+    love.graphics.print('Completed!', x + 12, y + h - (handheld and 18 or 22))
   end
+  popUIFont()
 end
 
 function ui.drawPrompt(state)
   local list = state.ui.prompts or {}
   if #list == 0 then return end
   local screenW, screenH = love.graphics.getDimensions()
+  local handheld = state.ui._handheldMode
   local baseX = 16
-  local baseY = 16 + 40 + 8 + 100 + 8
-  local w = math.min(520, screenW - baseX - 16)
-  local h = 56
+  -- anchor just below HUD on handheld; otherwise keep desktop spacing
+  local hud = state.ui._hudBounds
+  local baseY
+  if handheld and hud then
+    baseY = hud.y + hud.h + 6
+  else
+    baseY = (handheld and 96 or 128)
+  end
+  local w = math.min(handheld and 360 or 520, screenW - baseX - 16)
+  local h = handheld and 42 or 56
   local spacing = 8
   local y = baseY
   for i, p in ipairs(list) do
@@ -995,7 +1184,9 @@ function ui.drawPrompt(state)
     -- Parchment theme like objectives
     drawParchmentPanel(baseX, y, w, h)
     love.graphics.setColor(0.18, 0.11, 0.06, alpha)
-    love.graphics.printf(p.text or '', baseX + 12, y + 16, w - 24, 'left')
+    if handheld then pushTinyFont() end
+    love.graphics.printf(p.text or '', baseX + 12, y + (handheld and 10 or 16), w - 24, 'left')
+    if handheld then popUIFont() end
     y = y + h + spacing
   end
 end
@@ -1022,9 +1213,10 @@ function ui.drawPauseMenu(state)
     local btnY = oy + (i - 1) * (ui.pauseMenu.optionHeight + ui.pauseMenu.optionSpacing)
     local btnW = panelW - 40
     local btnH = ui.pauseMenu.optionHeight
-    local mx, my = love.mouse.getPosition()
+    local mx, my = ui.getPointer()
     local hovered = utils.isPointInRect(mx, my, ox, btnY, btnW, btnH)
-    if hovered then
+    local focused = (state.ui._pauseMenuFocus == i)
+    if hovered or focused then
       love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
       love.graphics.rectangle('fill', ox - 2, btnY + 2, btnW + 4, btnH + 4, 8, 8)
       love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
@@ -1062,7 +1254,7 @@ function ui.drawPauseMenu(state)
     local by = y + 60
     for slot = 1, 3 do
       local exists = love.filesystem.getInfo(string.format('save_%d.json', slot)) ~= nil
-      local mx, my = love.mouse.getPosition()
+      local mx, my = ui.getPointer()
       local hovered = utils.isPointInRect(mx, my, bx, by, btnW, btnH)
       love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
       love.graphics.rectangle('fill', bx - 2, by + 2, btnW + 4, btnH + 4, 8, 8)
@@ -1077,7 +1269,8 @@ function ui.drawPauseMenu(state)
       by = by + btnH + 10
     end
     -- Cancel button
-    local hovered = utils.isPointInRect(love.mouse.getX(), love.mouse.getY(), bx, y + h - 20 - btnH, btnW, btnH)
+    local hx, hy = ui.getPointer()
+    local hovered = utils.isPointInRect(hx, hy, bx, y + h - 20 - btnH, btnW, btnH)
     love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
     love.graphics.rectangle('fill', bx - 2, y + h - 20 - btnH + 2, btnW + 4, btnH + 4, 8, 8)
     love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
