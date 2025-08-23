@@ -732,6 +732,19 @@ function ui.drawHUD(state)
   local totalWood = baseWood + storedWood
   local lineX = x + 12
   local lineY = y + 12
+  -- Precompute food and time for both modes
+  local baseFood = math.floor((state.game.resources.food or 0) + 0.5)
+  local storedFood = 0
+  for _, b in ipairs(state.game.buildings) do
+    if (b.type == 'market' or b.type == 'builder') and b.storage and b.storage.food then
+      storedFood = storedFood + b.storage.food
+    end
+  end
+  local totalFood = baseFood + storedFood
+  local hours = math.floor(state.time.normalized * 24) % 24
+  local minutes = math.floor((state.time.normalized * 24 - hours) * 60)
+  local tnorm = state.time.normalized
+  local isDay = (tnorm >= 0.25 and tnorm < 0.75)
   love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
   if handheld then
     -- Compose single-line HUD and size parchment to fit
@@ -767,14 +780,6 @@ function ui.drawHUD(state)
   else
     love.graphics.print(string.format("Wood: %d", totalWood), lineX, lineY)
   end
-  local baseFood = math.floor((state.game.resources.food or 0) + 0.5)
-  local storedFood = 0
-  for _, b in ipairs(state.game.buildings) do
-    if (b.type == 'market' or b.type == 'builder') and b.storage and b.storage.food then
-      storedFood = storedFood + b.storage.food
-    end
-  end
-  local totalFood = baseFood + storedFood
   local foodLabel = string.format("Food: %d", totalFood)
   if not handheld then
     love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
@@ -808,10 +813,6 @@ function ui.drawHUD(state)
     end
   end
 
-  local hours = math.floor(state.time.normalized * 24) % 24
-  local minutes = math.floor((state.time.normalized * 24 - hours) * 60)
-  local tnorm = state.time.normalized
-  local isDay = (tnorm >= 0.25 and tnorm < 0.75)
   love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
   if not handheld then
     love.graphics.print(string.format("Time: %02d:%02d (%s)", hours, minutes, isDay and "Day" or "Night"), x + 220, y + 12)
