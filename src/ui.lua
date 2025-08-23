@@ -720,8 +720,11 @@ function ui.drawHUD(state)
     state.ui._hudBounds = { x = x, y = y, w = w, h = h }
   end
 
-  love.graphics.setColor(colors.text)
-  if handheld then pushTinyFont() end
+  if handheld then
+    pushTinyFont()
+  else
+    love.graphics.setColor(colors.text)
+  end
   local baseWood = math.floor(state.game.resources.wood + 0.5)
   local storedWood = 0
   for _, b in ipairs(state.game.buildings) do
@@ -776,6 +779,8 @@ function ui.drawHUD(state)
     w = math.min(neededW, love.graphics.getWidth() - x - 12)
     drawParchmentPanel(x, y, w, h)
     state.ui._hudBounds = { x = x, y = y, w = w, h = h }
+    -- match prompt text color
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
     love.graphics.print(label, lineX, lineY)
   else
     love.graphics.print(string.format("Wood: %d", totalWood), lineX, lineY)
