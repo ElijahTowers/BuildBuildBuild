@@ -756,6 +756,88 @@ function ui.drawMiniMap(state)
   end
 end
 
+-- Small D-pad hint (handheld only) in lower-left corner
+function ui.drawDpadHint(state)
+  if not state.ui._handheldMode then return end
+  local screenW, screenH = love.graphics.getDimensions()
+  -- Anchor in lower-left with some padding
+  local pad = 12
+  local cx = pad + 90
+  local cy = screenH - pad - 50
+
+  -- Fancy D-pad metrics
+  local baseR = 26            -- round base radius
+  local armW  = 12            -- arm thickness
+  local armL  = 16            -- arm length from center to tip
+  local gap   = 4             -- center gap
+
+  -- Back plate for readability
+  love.graphics.setColor(0, 0, 0, 0.35)
+  love.graphics.rectangle('fill', cx - (baseR + 14), cy - (baseR + 14), (baseR + 14) * 2, (baseR + 14) * 2, 6, 6)
+
+  -- Round base with subtle shading
+  love.graphics.setColor(0.12, 0.12, 0.13, 0.95)
+  love.graphics.circle('fill', cx, cy, baseR)
+  love.graphics.setColor(0.18, 0.18, 0.19, 1.0)
+  love.graphics.circle('line', cx, cy, baseR)
+  -- highlight/shadow sweep
+  love.graphics.setColor(1, 1, 1, 0.06)
+  love.graphics.arc('fill', cx, cy, baseR, -1.05 * math.pi, -0.55 * math.pi)
+  love.graphics.setColor(0, 0, 0, 0.10)
+  love.graphics.arc('fill', cx, cy, baseR, 0.35 * math.pi, 0.75 * math.pi)
+
+  -- Cross arms (rounded)
+  local armColor = { 0.88, 0.88, 0.90, 0.96 }
+  local edgeColor = { 0.22, 0.22, 0.24, 1.0 }
+  love.graphics.setColor(armColor)
+  -- up
+  love.graphics.rectangle('fill', cx - armW/2, cy - gap/2 - armL, armW, armL, 3, 3)
+  -- down
+  love.graphics.rectangle('fill', cx - armW/2, cy + gap/2, armW, armL, 3, 3)
+  -- left
+  love.graphics.rectangle('fill', cx - gap/2 - armL, cy - armW/2, armL, armW, 3, 3)
+  -- right
+  love.graphics.rectangle('fill', cx + gap/2, cy - armW/2, armL, armW, 3, 3)
+  -- outlines
+  love.graphics.setColor(edgeColor)
+  love.graphics.rectangle('line', cx - armW/2, cy - gap/2 - armL, armW, armL, 3, 3)
+  love.graphics.rectangle('line', cx - armW/2, cy + gap/2, armW, armL, 3, 3)
+  love.graphics.rectangle('line', cx - gap/2 - armL, cy - armW/2, armL, armW, 3, 3)
+  love.graphics.rectangle('line', cx + gap/2, cy - armW/2, armL, armW, 3, 3)
+
+  -- Center diamond
+  love.graphics.setColor(0.92, 0.92, 0.94, 1)
+  love.graphics.rectangle('fill', cx - gap/2, cy - gap/2, gap, gap, 2, 2)
+  love.graphics.setColor(edgeColor)
+  love.graphics.rectangle('line', cx - gap/2, cy - gap/2, gap, gap, 2, 2)
+
+  -- Labels (kept outside of the dpad, aligned and with background chips)
+  local upLabel = 'Queue'
+  local downLabel = 'Villagers'
+  local leftLabel = 'Missions'
+  local rightLabel = 'Map'
+
+  pushTinyFont()
+  local font = love.graphics.getFont()
+  local function drawChip(text, tx, ty, align)
+    local w = font:getWidth(text)
+    local h = font:getHeight()
+    local x0 = tx
+    if align == 'center' then x0 = tx - w/2 end
+    love.graphics.setColor(0, 0, 0, 0.5)
+    love.graphics.rectangle('fill', x0 - 4, ty - 2, w + 8, h + 4, 4, 4)
+    love.graphics.setColor(1, 1, 1, 0.95)
+    love.graphics.print(text, x0, ty)
+  end
+
+  local extent = baseR + 10
+  drawChip(upLabel,   cx, cy - extent - font:getHeight() - 4, 'center')
+  drawChip(downLabel, cx, cy + extent + 6, 'center')
+  drawChip(leftLabel, cx - extent - 6 - font:getWidth(leftLabel), cy - font:getHeight()/2, 'left')
+  drawChip(rightLabel, cx + extent + 6, cy - font:getHeight()/2, 'left')
+  popUIFont()
+end
+
 function ui.drawHUD(state)
   pushUIFont()
   local handheld = state.ui._handheldMode

@@ -1023,6 +1023,8 @@ function love.draw()
   ui.drawBuildQueue(state)
   ui.drawVillagersPanel(state)
   if state.ui.showMinimap then ui.drawMiniMap(state) end
+  -- Handheld: show small D-pad hint in lower-left
+  if state.ui._handheldMode then ui.drawDpadHint(state) end
   if state.ui.showMissionPanel then ui.drawMissionPanel(state) end
   ui.drawPrompt(state)
 
