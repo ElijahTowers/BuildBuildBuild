@@ -140,6 +140,52 @@ local function isOverUI(mx, my)
   return false
 end
 
+-- Handheld build menu grid navigation (2 columns)
+local function moveBuildMenuFocus(dx, dy)
+  local ui_mod = require('src.ui')
+  local opts = ui_mod.buildMenu.options or {}
+  local count = #opts
+  if count == 0 then return end
+  local cols = 2
+  local idx = state.ui._buildMenuFocus or 1
+  local col = (idx - 1) % cols
+  local row = math.floor((idx - 1) / cols)
+
+  if dy and dy ~= 0 then
+    local new = idx + dy * cols
+    if new >= 1 and new <= count then
+      state.ui._buildMenuFocus = new
+      return
+    end
+  end
+
+  if dx and dx ~= 0 then
+    if dx < 0 and col > 0 then
+      state.ui._buildMenuFocus = idx - 1
+    elseif dx > 0 and col < (cols - 1) and (idx + 1) <= count then
+      state.ui._buildMenuFocus = idx + 1
+    end
+  end
+end
+
+-- Handheld pause menu navigation (single column)
+local function movePauseMenuFocus(dy)
+  local ui_mod = require('src.ui')
+  local opts = ui_mod.pauseMenu.options or {}
+  local count = #opts
+  if count == 0 then return end
+  
+  local idx = state.ui._pauseMenuFocus or 1
+  
+  if dy and dy ~= 0 then
+    local new = idx + dy
+    if new >= 1 and new <= count then
+      state.ui._pauseMenuFocus = new
+      return
+    end
+  end
+end
+
 -- Apply startup preset and initialize world
 local function startGameWithPreset(preset)
   local ww, wh, flags = love.window.getMode()
@@ -330,11 +376,23 @@ function love.update(dt)
       or state.ui.isBuildQueueOpen == true
       or state.ui.isFoodPanelOpen == true
       or state.ui.isPaused == true
+      or state.ui._wheelMenuActive == true
+      or state.ui._controlsOverlayOpen == true
     if navigableOpen then
       state.ui._useVirtualCursor = false
     else
       state.ui._useVirtualCursor = true
     end
+    
+      -- Track stick state for discrete movement
+  state.ui._lastStickState = state.ui._lastStickState or { x = 0, y = 0 }
+  
+  -- Track last D-pad axis values for edge detection (handheld)
+  state.ui._lastDpadAxis = state.ui._lastDpadAxis or { up = 0, down = 0, left = 0 }
+  
+  -- Wheel menu state for retroid mode
+  state.ui._wheelMenuActive = state.ui._wheelMenuActive or false
+  state.ui._wheelMenuSelection = state.ui._wheelMenuSelection or 1
   end
   if state.ui.isPaused then return end
   local isInitial = state.ui._pauseTimeForInitial
@@ -558,21 +616,114 @@ function love.update(dt)
   -- Preview timer for pulsing outline
   state.ui.previewT = state.ui.previewT + sdt
   -- Virtual cursor update (left stick moves cursor) - disabled while navigable menu is open in handheld mode
+  if gamepad and gamepad:isConnected() == false then gamepad = nil end
+  if (not gamepad) and love.joystick and love.joystick.getJoysticks then
+    local joys = love.joystick.getJoysticks()
+    if joys and #joys > 0 then gamepad = joys[1] end
+  end
   if gamepad and gamepad:isConnected() then
+    local ax = gamepad:getGamepadAxis("leftx") or 0
+    local ay = gamepad:getGamepadAxis("lefty") or 0
+    
+    -- Discrete menu navigation in handheld mode (works even when virtual cursor is suppressed)
+    if state.ui._handheldMode then
+      local lastX, lastY = state.ui._lastStickState.x, state.ui._lastStickState.y
+      local threshold = 0.5
+      
+              -- Check for discrete movement (stick crosses threshold) - only when wheel menu is not active
+        if not state.ui._wheelMenuActive and math.abs(ax) > threshold and math.abs(lastX) <= threshold then
+          if ax > 0 then
+            -- Right movement
+            if state.ui.isBuildMenuOpen then
+              moveBuildMenuFocus(1, 0)
+            end
+          else
+            -- Left movement
+            if state.ui.isBuildMenuOpen then
+              moveBuildMenuFocus(-1, 0)
+            end
+          end
+        end
+      
+      -- Wheel menu directional control (when active, disable other stick functions)
+      if state.ui._wheelMenuActive then
+        local ui_mod = require('src.ui')
+        local opts = ui_mod.buildMenu.options or {}
+        local count = #opts
+        if count > 0 then
+          -- Add deadzone to prevent accidental selections
+          local stickMagnitude = math.sqrt(ax * ax + ay * ay)
+          if stickMagnitude > 0.2 then
+            -- Calculate angle from stick position
+            local angle = math.atan2(ay, ax)
+            -- Convert angle to selection (0 = top, clockwise)
+            local normalizedAngle = (angle + math.pi / 2) % (2 * math.pi)
+            local selection = math.floor((normalizedAngle / (2 * math.pi)) * count) + 1
+            selection = math.max(1, math.min(count, selection))
+            state.ui._wheelMenuSelection = selection
+          else
+            -- Return to neutral center when stick is released
+            state.ui._wheelMenuSelection = 0
+          end
+        end
+      else
+        -- Normal discrete navigation when wheel menu is not active
+        if math.abs(ay) > threshold and math.abs(lastY) <= threshold then
+          if ay > 0 then
+            -- Down movement
+            if state.ui.isBuildMenuOpen then
+              moveBuildMenuFocus(0, 1)
+            elseif state.ui.isPaused then
+              movePauseMenuFocus(1)
+            elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
+              local count = #(state.ui._missionSelectorButtons or {})
+              local idx = (state.ui._missionSelectorFocus or 1)
+              if idx < count then state.ui._missionSelectorFocus = idx + 1 end
+            elseif state.ui.isVillagersPanelOpen and state.ui._villagersPanelButtons then
+              local count = #(state.ui._villagersPanelButtons or {})
+              state.ui._villagersPanelFocus = math.min(count, (state.ui._villagersPanelFocus or 1) + 1)
+            elseif state.ui.isBuildQueueOpen then
+              local count = #(state.game.buildQueue or {})
+              state.ui._queueFocusIndex = math.min(count, (state.ui._queueFocusIndex or 1) + 1)
+            end
+          else
+            -- Up movement
+            if state.ui.isBuildMenuOpen then
+              moveBuildMenuFocus(0, -1)
+            elseif state.ui.isPaused then
+              movePauseMenuFocus(-1)
+            elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
+              local idx = (state.ui._missionSelectorFocus or 1)
+              if idx > 1 then state.ui._missionSelectorFocus = idx - 1 end
+            elseif state.ui.isVillagersPanelOpen and state.ui._villagersPanelButtons then
+              state.ui._villagersPanelFocus = math.max(1, (state.ui._villagersPanelFocus or 1) - 1)
+            elseif state.ui.isBuildQueueOpen then
+              local count = #(state.game.buildQueue or {})
+              state.ui._queueFocusIndex = math.max(1, (state.ui._queueFocusIndex or 1) - 1)
+            end
+          end
+        end
+      end
+      
+      -- Update last stick state
+      state.ui._lastStickState.x = ax
+      state.ui._lastStickState.y = ay
+    end
+    
+    -- Virtual cursor movement (only when not suppressed)
     local suppressCursor = state.ui._handheldMode and (
-      state.ui.isBuildMenuOpen or state.ui.isMissionSelectorOpen or state.ui.isVillagersPanelOpen or state.ui.isBuildQueueOpen or state.ui.isFoodPanelOpen or state.ui.isPaused
+      state.ui.isBuildMenuOpen or state.ui.isMissionSelectorOpen or state.ui.isVillagersPanelOpen or state.ui.isBuildQueueOpen or state.ui.isFoodPanelOpen or state.ui.isPaused or state.ui._wheelMenuActive or state.ui._controlsOverlayOpen
     )
     if not suppressCursor then
-      local ax = gamepad:getGamepadAxis("leftx") or 0
-      local ay = gamepad:getGamepadAxis("lefty") or 0
-      -- Lower speed and use cubic response for precision near center
-      local maxSpeed = 520
+      -- Much lower speed and use cubic response for precision near center
+      local maxSpeed = 180
       local ax3 = ax * math.abs(ax) * math.abs(ax)
       local ay3 = ay * math.abs(ay) * math.abs(ay)
       local scale = state.camera.scale or 1
       local vx = (ax3 * maxSpeed * dt)
       local vy = (ay3 * maxSpeed * dt)
-      if math.abs(ax) > 0.15 or math.abs(ay) > 0.15 then
+      -- Much larger deadzone for precision
+      if math.abs(ax) > 0.35 or math.abs(ay) > 0.35 then
         state.ui._useVirtualCursor = true
         state.ui._virtualCursor.x = utils.clamp((state.ui._virtualCursor.x or 0) + vx, 0, love.graphics.getWidth())
         state.ui._virtualCursor.y = utils.clamp((state.ui._virtualCursor.y or 0) + vy, 0, love.graphics.getHeight())
@@ -613,7 +764,7 @@ function love.update(dt)
 
   -- Mouse/touch edge panning (not speed-scaled) and virtual-cursor edge pan on handheld
   local mx, my = love.mouse.getPosition()
-  if state.ui._handheldMode and state.ui._useVirtualCursor and state.ui._virtualCursor then
+  if state.ui._handheldMode and state.ui._useVirtualCursor and state.ui._virtualCursor and not state.ui._wheelMenuActive then
     mx, my = state.ui._virtualCursor.x or mx, state.ui._virtualCursor.y or my
   end
   local screenW, screenH = love.graphics.getDimensions()
@@ -796,20 +947,42 @@ function love.draw()
   -- Draw virtual cursor when a gamepad is present (UI-space)
   if gamepad and gamepad:isConnected() and state.ui._virtualCursor then
     local x, y = state.ui._virtualCursor.x, state.ui._virtualCursor.y
-    if state.ui._useVirtualCursor then
-      love.graphics.setColor(1, 1, 1, 0.9)
-      love.graphics.circle('fill', x, y, 4)
-      love.graphics.setColor(0, 0, 0, 0.6)
-      love.graphics.circle('line', x, y, 4)
+    if state.ui._useVirtualCursor and not state.ui._wheelMenuActive then
+      if state.ui._handheldMode then
+        -- Draw highlighted cell instead of cursor
+        local tileX, tileY = screenToTile(x, y)
+        local worldX = tileX * TILE_SIZE
+        local worldY = tileY * TILE_SIZE
+        local screenX = (worldX - state.camera.x) * state.camera.scale
+        local screenY = (worldY - state.camera.y) * state.camera.scale
+        
+        -- Pulsing highlight effect
+        local pulse = 0.6 + 0.4 * math.sin(love.timer.getTime() * 3)
+        love.graphics.setColor(1, 1, 0.8, 0.8 * pulse)
+        love.graphics.rectangle('fill', screenX, screenY, TILE_SIZE * state.camera.scale, TILE_SIZE * state.camera.scale)
+        love.graphics.setColor(1, 1, 0.4, 0.9 * pulse)
+        love.graphics.setLineWidth(3)
+        love.graphics.rectangle('line', screenX, screenY, TILE_SIZE * state.camera.scale, TILE_SIZE * state.camera.scale)
+        love.graphics.setLineWidth(1)
+      else
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.circle('fill', x, y, 4)
+        love.graphics.setColor(0, 0, 0, 0.6)
+        love.graphics.circle('line', x, y, 4)
+      end
     end
   end
 
   -- UI draw
   ui.drawTopButtons(state)
   ui.drawBuildMenu(state, state.buildingDefs)
+  ui.drawWheelMenu(state)
+  -- Controls overlay on top of menus
+  ui.drawControlsOverlay(state)
   ui.drawHUD(state)
   ui.drawFoodPanel(state)
   ui.drawBuildQueue(state)
+  ui.drawVillagersPanel(state)
   if state.ui.showMinimap then ui.drawMiniMap(state) end
   if state.ui.showMissionPanel then ui.drawMissionPanel(state) end
   ui.drawPrompt(state)
@@ -1436,38 +1609,26 @@ function love.keypressed(key)
   -- Handheld keyboard mimic of controller buttons and left stick
   if state.ui._handheldMode then
     if key == 'a' then
+      -- Handheld: A selects/acts. In queue, toggle reorder mode.
+      if state.ui._handheldMode and state.ui.isBuildQueueOpen then
+        state.ui._queueReorderActive = not (state.ui._queueReorderActive or false)
+        if (not state.ui._queueFocusIndex) then state.ui._queueFocusIndex = 1 end
+        return
+      end
       if state.ui.isBuildMenuOpen and state.ui._buildMenuFocus then
         local ui_mod = require('src.ui')
         local opt = ui_mod.buildMenu.options[state.ui._buildMenuFocus]
         if opt then
-          if opt.key == 'road' then
-            state.ui.isPlacingRoad = true
-            state.ui.isPlacingBuilding = false
-            state.ui.selectedBuildingType = nil
-            state.ui.isBuildMenuOpen = false
-            state.ui.roadStartTile = nil
-          else
-            state.ui.selectedBuildingType = opt.key
-            state.ui.isPlacingBuilding = true
-            state.ui.isBuildMenuOpen = false
-            state.ui.buildMenuAlpha = 0
-          end
+          state.ui.selectedBuildingType = opt.key
+          state.ui.isPlacingBuilding = true
+          state.ui.isBuildMenuOpen = false
+          state.ui.buildMenuAlpha = 0
           return
         end
-      elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
-        local idx = state.ui._missionSelectorFocus or 1
-        local btn = state.ui._missionSelectorButtons[idx]
-        if btn then
-          -- simulate mouse click on the focused mission button
-          love.mousepressed(btn.x + 2, btn.y + 2, 1)
-          return
-        end
-      elseif state.ui.isPaused and ui.pauseMenu and ui.pauseMenu.options then
-        local idx = state.ui._pauseMenuFocus or 1
-        local list = ui.pauseMenu.options
-        local opt = list[idx]
+      elseif state.ui.isPaused and state.ui._pauseMenuFocus then
+        local ui_mod = require('src.ui')
+        local opt = ui_mod.pauseMenu.options[state.ui._pauseMenuFocus]
         if opt then
-          -- trigger pause menu action directly
           if opt.key == 'resume' then
             state.ui.isPaused = false
           elseif opt.key == 'save' then
@@ -1483,54 +1644,160 @@ function love.keypressed(key)
           end
           return
         end
+      elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
+        local idx = state.ui._missionSelectorFocus or 1
+        local btn = state.ui._missionSelectorButtons[idx]
+        if btn then
+          love.mousepressed(btn.x + 2, btn.y + 2, 1)
+          return
+        end
+      elseif state.ui.isVillagersPanelOpen and state.ui._villagersPanelButtons then
+        local idx = state.ui._villagersPanelFocus or 1
+        local entry = state.ui._villagersPanelButtons[idx]
+        if entry and entry.add then
+          -- simulate pressing the '+' button for the focused row
+          love.mousepressed(entry.add.x + 2, entry.add.y + 2, 1)
+          return
+        end
+      elseif state.ui.isBuildQueueOpen and state.ui._handheldMode then
+        -- Toggle reorder mode for handheld queue
+        state.ui._queueReorderActive = not (state.ui._queueReorderActive or false)
+        if (not state.ui._queueFocusIndex) then state.ui._queueFocusIndex = 1 end
+        return
       end
-      -- otherwise simulate a left click at virtual cursor
       local x = (state.ui._virtualCursor and state.ui._virtualCursor.x) or love.mouse.getX()
       local y = (state.ui._virtualCursor and state.ui._virtualCursor.y) or love.mouse.getY()
       love.mousepressed(x, y, 1)
       return
     elseif key == 'b' then
-      local x = (state.ui._virtualCursor and state.ui._virtualCursor.x) or love.mouse.getX()
-      local y = (state.ui._virtualCursor and state.ui._virtualCursor.y) or love.mouse.getY()
+      -- Handheld: B returns/closes current panels
+      if state.ui._handheldMode then
+        if state.ui.isBuildQueueOpen then
+          state.ui.isBuildQueueOpen = false
+          state.ui._queueReorderActive = false
+          return
+        elseif state.ui.isVillagersPanelOpen then
+          state.ui.isVillagersPanelOpen = false
+          return
+        elseif state.ui.isBuildMenuOpen then
+          state.ui.isBuildMenuOpen = false
+          return
+        end
+      end
+      local x, y = state.ui._virtualCursor.x or 0, state.ui._virtualCursor.y or 0
       love.mousepressed(x, y, 2)
-      return
     elseif key == 'x' then
-      state.ui.isBuildMenuOpen = not state.ui.isBuildMenuOpen
-      if state.ui.isBuildMenuOpen then
-        state.ui.isPlacingBuilding = false
-        state.ui.selectedBuildingType = nil
-        state.ui.isPlacingRoad = false
-        state.ui.roadStartTile = nil
-        state.ui.isVillagersPanelOpen = false
-        state.ui._buildMenuFocus = 1
-        state.ui._useVirtualCursor = false
+      if state.ui._handheldMode then
+        -- Toggle handheld controls overlay
+        state.ui._controlsOverlayOpen = not state.ui._controlsOverlayOpen
+        if state.ui._controlsOverlayOpen then
+          -- Close other panels for clarity
+          state.ui.isBuildMenuOpen = false
+          state.ui.isVillagersPanelOpen = false
+          state.ui.isBuildQueueOpen = false
+          state.ui.isPaused = false
+          state.ui.isPlacingBuilding = false
+          state.ui.selectedBuildingType = nil
+          state.ui.isPlacingRoad = false
+          state.ui.roadStartTile = nil
+          -- Disable virtual cursor while overlay is shown
+          state.ui._useVirtualCursor = false
+        end
+      else
+        state.ui.isBuildMenuOpen = not state.ui.isBuildMenuOpen
+        if state.ui.isBuildMenuOpen then
+          state.ui.isPlacingBuilding = false
+          state.ui.selectedBuildingType = nil
+          state.ui.isPlacingRoad = false
+          state.ui.roadStartTile = nil
+          state.ui.isVillagersPanelOpen = false
+          state.ui._buildMenuFocus = 1
+          -- disable virtual cursor while navigating menu by stick/buttons
+          state.ui._useVirtualCursor = false
+        end
+      end
+    elseif key == 'y' then
+      -- Y key disabled in handheld mode
+      if not state.ui._handheldMode then
+        state.ui.showMissionPanel = not state.ui.showMissionPanel
       end
       return
-    elseif key == 'y' then
-      state.ui.showMissionPanel = not state.ui.showMissionPanel
+    elseif key == 'r' and state.ui._handheldMode then
+      -- Keyboard fallback for R2 trigger (hold R key)
+      state.ui._wheelMenuActive = true
+      state.ui._wheelMenuSelection = 0
+      return
+    elseif key == 'l' and state.ui._handheldMode then
+      -- Keyboard fallback for L2 trigger (press L key)
+      local speeds = {1, 2, 4, 8}
+      local currentSpeed = state.time.speed or 1
+      local currentIndex = 1
+      for i, speed in ipairs(speeds) do
+        if speed == currentSpeed then
+          currentIndex = i
+          break
+        end
+      end
+      local nextIndex = (currentIndex % #speeds) + 1
+      state.time.speed = speeds[nextIndex]
       return
     elseif key == 'up' then
-      if state.ui.isBuildMenuOpen then
-        state.ui._buildMenuFocus = math.max(1, (state.ui._buildMenuFocus or 1) - 1)
-      elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
-        state.ui._missionSelectorFocus = math.max(1, (state.ui._missionSelectorFocus or 1) - 1)
-      elseif state.ui.isPaused and ui.pauseMenu and ui.pauseMenu.options then
-        state.ui._pauseMenuFocus = math.max(1, (state.ui._pauseMenuFocus or 1) - 1)
+      if state.ui._handheldMode then
+        -- D-pad up opens build queue in handheld mode
+        state.ui.isBuildQueueOpen = not state.ui.isBuildQueueOpen
+        if state.ui.isBuildQueueOpen then
+          -- Close other panels for clarity
+          state.ui.isBuildMenuOpen = false
+          state.ui.isVillagersPanelOpen = false
+          state.ui.isPaused = false
+          state.ui.isPlacingBuilding = false
+          state.ui.selectedBuildingType = nil
+          state.ui.isPlacingRoad = false
+          state.ui.roadStartTile = nil
+          state.ui._queueFocusIndex = 1
+          state.ui._queueReorderActive = false
+        end
       else
-        state.ui._useVirtualCursor = true
-        state.ui._virtualCursor.y = math.max(0, (state.ui._virtualCursor.y or 0) - 24)
+        -- Desktop mode: normal navigation
+        if state.ui.isBuildMenuOpen then
+          moveBuildMenuFocus(0, -1)
+        elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
+          state.ui._missionSelectorFocus = math.max(1, (state.ui._missionSelectorFocus or 1) - 1)
+        elseif state.ui.isPaused and ui.pauseMenu and ui.pauseMenu.options then
+          state.ui._pauseMenuFocus = math.max(1, (state.ui._pauseMenuFocus or 1) - 1)
+        else
+          state.ui._useVirtualCursor = true
+          state.ui._virtualCursor.y = math.max(0, (state.ui._virtualCursor.y or 0) - 24)
+        end
       end
       return
     elseif key == 'down' then
-      if state.ui.isBuildMenuOpen then
-        state.ui._buildMenuFocus = math.min(#require('src.ui').buildMenu.options, (state.ui._buildMenuFocus or 1) + 1)
-      elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
-        state.ui._missionSelectorFocus = math.min(#(state.ui._missionSelectorButtons or {}), (state.ui._missionSelectorFocus or 1) + 1)
-      elseif state.ui.isPaused and ui.pauseMenu and ui.pauseMenu.options then
-        state.ui._pauseMenuFocus = math.min(#ui.pauseMenu.options, (state.ui._pauseMenuFocus or 1) + 1)
+      if state.ui._handheldMode then
+        -- D-pad down opens villagers panel in handheld mode
+        state.ui.isVillagersPanelOpen = not state.ui.isVillagersPanelOpen
+        if state.ui.isVillagersPanelOpen then
+          -- Close other panels for clarity
+          state.ui.isBuildMenuOpen = false
+          state.ui.isBuildQueueOpen = false
+          state.ui.isPaused = false
+          state.ui.isPlacingBuilding = false
+          state.ui.selectedBuildingType = nil
+          state.ui.isPlacingRoad = false
+          state.ui.roadStartTile = nil
+          state.ui._villagersPanelFocus = 1
+        end
       else
-        state.ui._useVirtualCursor = true
-        state.ui._virtualCursor.y = math.min(love.graphics.getHeight(), (state.ui._virtualCursor.y or 0) + 24)
+        -- Desktop mode: normal navigation
+        if state.ui.isBuildMenuOpen then
+          moveBuildMenuFocus(0, 1)
+        elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
+          state.ui._missionSelectorFocus = math.min(#(state.ui._missionSelectorButtons or {}), (state.ui._missionSelectorFocus or 1) + 1)
+        elseif state.ui.isPaused and ui.pauseMenu and ui.pauseMenu.options then
+          state.ui._pauseMenuFocus = math.min(#ui.pauseMenu.options, (state.ui._pauseMenuFocus or 1) + 1)
+        else
+          state.ui._useVirtualCursor = true
+          state.ui._virtualCursor.y = math.min(love.graphics.getHeight(), (state.ui._virtualCursor.y or 0) + 24)
+        end
       end
       return
     elseif key == 'up' then
@@ -1544,7 +1811,7 @@ function love.keypressed(key)
     
     elseif key == 'left' then
       if state.ui.isBuildMenuOpen then
-        state.ui._buildMenuFocus = math.max(1, (state.ui._buildMenuFocus or 1) - 1)
+        moveBuildMenuFocus(-1, 0)
       else
         state.ui._useVirtualCursor = true
         state.ui._virtualCursor.x = math.max(0, (state.ui._virtualCursor.x or 0) - 24)
@@ -1552,7 +1819,7 @@ function love.keypressed(key)
       return
     elseif key == 'right' then
       if state.ui.isBuildMenuOpen then
-        state.ui._buildMenuFocus = math.min(#require('src.ui').buildMenu.options, (state.ui._buildMenuFocus or 1) + 1)
+        moveBuildMenuFocus(1, 0)
       else
         state.ui._useVirtualCursor = true
         state.ui._virtualCursor.x = math.min(love.graphics.getWidth(), (state.ui._virtualCursor.x or 0) + 24)
@@ -1583,6 +1850,9 @@ function love.keypressed(key)
     end
     -- Nothing to close: toggle pause menu
     state.ui.isPaused = not state.ui.isPaused
+    if state.ui.isPaused then
+      state.ui._pauseMenuFocus = 1
+    end
   elseif key == 'c' then
     state.ui.isBuildMenuOpen = not state.ui.isBuildMenuOpen
     if state.ui.isBuildMenuOpen then
@@ -1693,7 +1963,7 @@ end
 -- Mouse controls the virtual cursor in handheld mode
 function love.mousemoved(x, y, dx, dy, istouch)
   if state.ui._handheldMode then
-    if state.ui.isBuildMenuOpen or state.ui.isMissionSelectorOpen or state.ui.isVillagersPanelOpen or state.ui.isBuildQueueOpen or state.ui.isFoodPanelOpen or state.ui.isPaused then return end
+    if state.ui.isBuildMenuOpen or state.ui.isMissionSelectorOpen or state.ui.isVillagersPanelOpen or state.ui.isBuildQueueOpen or state.ui.isFoodPanelOpen or state.ui.isPaused or state.ui._wheelMenuActive or state.ui._controlsOverlayOpen then return end
     state.ui._useVirtualCursor = true
     state.ui._virtualCursor = state.ui._virtualCursor or { x = 0, y = 0 }
     state.ui._virtualCursor.x = utils.clamp(x, 0, love.graphics.getWidth())
@@ -1703,6 +1973,14 @@ end
 
 function love.gamepadpressed(joy, button)
   gamepad = joy
+  -- Retroid handheld mapping: ensure most-right button acts as 'a' (select), and the other as 'b' (back)
+  if state.ui._handheldMode then
+    if button == 'b' then
+      button = 'a'
+    elseif button == 'a' then
+      button = 'b'
+    end
+  end
   if state.ui._startupChoiceOpen then
     if button == 'dpleft' then state.ui._startupChoiceFocus = 1 return end
     if button == 'dpright' then state.ui._startupChoiceFocus = 2 return end
@@ -1711,8 +1989,38 @@ function love.gamepadpressed(joy, button)
       return
     end
   end
+  -- While Villagers panel is open, use L/R shoulders to change workers and block other actions
+  if state.ui.isVillagersPanelOpen and state.ui._villagersPanelButtons then
+    local idx = state.ui._villagersPanelFocus or 1
+    local entry = state.ui._villagersPanelButtons[idx]
+    if entry and entry.b then
+      if button == 'rightshoulder' then
+        require('src.buildings').assignOne(state, entry.b)
+        return
+      elseif button == 'leftshoulder' then
+        require('src.buildings').unassignOne(state, entry.b)
+        return
+      end
+    end
+  end
   if button == 'a' then
-    if state.ui.isBuildMenuOpen and state.ui._buildMenuFocus then
+    if state.ui.isBuildQueueOpen and state.ui._handheldMode then
+      -- A button in queue panel: toggle selection of current item for reordering
+      local queueCount = #(state.game.buildQueue or {})
+      if queueCount > 0 then
+        state.ui._queueFocusIndex = state.ui._queueFocusIndex or 1
+        state.ui._queueSelectedIndex = state.ui._queueSelectedIndex or nil
+        
+        if state.ui._queueSelectedIndex == state.ui._queueFocusIndex then
+          -- Deselect if same item
+          state.ui._queueSelectedIndex = nil
+        else
+          -- Select current focused item
+          state.ui._queueSelectedIndex = state.ui._queueFocusIndex
+        end
+      end
+      return
+    elseif state.ui.isBuildMenuOpen and state.ui._buildMenuFocus then
       local ui_mod = require('src.ui')
       local opt = ui_mod.buildMenu.options[state.ui._buildMenuFocus]
       if opt then
@@ -1722,49 +2030,170 @@ function love.gamepadpressed(joy, button)
         state.ui.buildMenuAlpha = 0
         return
       end
+    elseif state.ui.isPaused and state.ui._pauseMenuFocus then
+      local ui_mod = require('src.ui')
+      local opt = ui_mod.pauseMenu.options[state.ui._pauseMenuFocus]
+      if opt then
+        if opt.key == 'resume' then
+          state.ui.isPaused = false
+        elseif opt.key == 'save' then
+          state.ui._saveLoadMode = 'save'
+        elseif opt.key == 'load' then
+          state.ui._saveLoadMode = 'load'
+        elseif opt.key == 'restart' then
+          state.restart()
+          trees.generate(state)
+          missions.init(state)
+        elseif opt.key == 'quit' then
+          love.event.quit()
+        end
+        return
+      end
     end
     local x, y = state.ui._virtualCursor.x or 0, state.ui._virtualCursor.y or 0
     love.mousepressed(x, y, 1)
   elseif button == 'b' then
+    if state.ui.isBuildQueueOpen and state.ui._handheldMode then
+      -- B button in queue panel: close the panel and clear selections
+      state.ui.isBuildQueueOpen = false
+      state.ui._queueFocusIndex = nil
+      state.ui._queueSelectedIndex = nil
+      return
+    end
     local x, y = state.ui._virtualCursor.x or 0, state.ui._virtualCursor.y or 0
     love.mousepressed(x, y, 2)
   elseif button == 'x' then
-    state.ui.isBuildMenuOpen = not state.ui.isBuildMenuOpen
-    if state.ui.isBuildMenuOpen then
-      state.ui.isPlacingBuilding = false
-      state.ui.selectedBuildingType = nil
-      state.ui.isPlacingRoad = false
-      state.ui.roadStartTile = nil
-      state.ui.isVillagersPanelOpen = false
-      state.ui._buildMenuFocus = 1
-      -- disable virtual cursor while navigating menu by stick/buttons
-      state.ui._useVirtualCursor = false
+    if state.ui._handheldMode then
+      -- Toggle handheld controls overlay
+      state.ui._controlsOverlayOpen = not state.ui._controlsOverlayOpen
+      if state.ui._controlsOverlayOpen then
+        -- Close other panels for clarity
+        state.ui.isBuildMenuOpen = false
+        state.ui.isVillagersPanelOpen = false
+        state.ui.isBuildQueueOpen = false
+        state.ui.isPaused = false
+        state.ui.isPlacingBuilding = false
+        state.ui.selectedBuildingType = nil
+        state.ui.isPlacingRoad = false
+        state.ui.roadStartTile = nil
+        -- Disable virtual cursor while overlay is shown
+        state.ui._useVirtualCursor = false
+      end
+    else
+      state.ui.isBuildMenuOpen = not state.ui.isBuildMenuOpen
+      if state.ui.isBuildMenuOpen then
+        state.ui.isPlacingBuilding = false
+        state.ui.selectedBuildingType = nil
+        state.ui.isPlacingRoad = false
+        state.ui.roadStartTile = nil
+        state.ui.isVillagersPanelOpen = false
+        state.ui._buildMenuFocus = 1
+        -- disable virtual cursor while navigating menu by stick/buttons
+        state.ui._useVirtualCursor = false
+      end
     end
   elseif button == 'dpup' then
-    if state.ui.isBuildMenuOpen then
-      state.ui._buildMenuFocus = math.max(1, (state.ui._buildMenuFocus or 1) - 1)
-    elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
-      state.ui._missionSelectorFocus = math.max(1, (state.ui._missionSelectorFocus or 1) - 1)
-    elseif state.ui.isPaused and ui.pauseMenu and ui.pauseMenu.options then
-      state.ui._pauseMenuFocus = math.max(1, (state.ui._pauseMenuFocus or 1) - 1)
+    if state.ui._handheldMode then
+      -- D-pad up opens build queue in handheld mode
+      state.ui.isBuildQueueOpen = not state.ui.isBuildQueueOpen
+      if state.ui.isBuildQueueOpen then
+        -- Initialize queue navigation
+        local queueCount = #(state.game.buildQueue or {})
+        if queueCount > 0 then
+          state.ui._queueFocusIndex = 1
+        else
+          state.ui._queueFocusIndex = nil
+        end
+        state.ui._queueSelectedIndex = nil
+        -- Close other panels for clarity
+        state.ui.isBuildMenuOpen = false
+        state.ui.isVillagersPanelOpen = false
+        state.ui.isPaused = false
+        state.ui.isPlacingBuilding = false
+        state.ui.selectedBuildingType = nil
+        state.ui.isPlacingRoad = false
+        state.ui.roadStartTile = nil
+      end
+    else
+      -- Desktop mode: normal menu navigation
+      if state.ui.isBuildMenuOpen then
+        moveBuildMenuFocus(0, -1)
+      elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
+        state.ui._missionSelectorFocus = math.max(1, (state.ui._missionSelectorFocus or 1) - 1)
+      elseif state.ui.isPaused then
+        movePauseMenuFocus(-1)
+      end
     end
   elseif button == 'dpdown' then
-    if state.ui.isBuildMenuOpen then
-      state.ui._buildMenuFocus = math.min(#require('src.ui').buildMenu.options, (state.ui._buildMenuFocus or 1) + 1)
-    elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
-      state.ui._missionSelectorFocus = math.min(#(state.ui._missionSelectorButtons or {}), (state.ui._missionSelectorFocus or 1) + 1)
-    elseif state.ui.isPaused and ui.pauseMenu and ui.pauseMenu.options then
-      state.ui._pauseMenuFocus = math.min(#ui.pauseMenu.options, (state.ui._pauseMenuFocus or 1) + 1)
+    if state.ui._handheldMode then
+      -- D-pad down opens villagers panel in handheld mode
+      state.ui.isVillagersPanelOpen = not state.ui.isVillagersPanelOpen
+      if state.ui.isVillagersPanelOpen then
+        -- Close other panels for clarity
+        state.ui.isBuildMenuOpen = false
+        state.ui.isBuildQueueOpen = false
+        state.ui.isPaused = false
+        state.ui.isPlacingBuilding = false
+        state.ui.selectedBuildingType = nil
+        state.ui.isPlacingRoad = false
+        state.ui.roadStartTile = nil
+      end
+    else
+      -- Desktop mode: normal menu navigation
+      if state.ui.isBuildMenuOpen then
+        moveBuildMenuFocus(0, 1)
+      elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
+        state.ui._missionSelectorFocus = math.min(#(state.ui._missionSelectorButtons or {}), (state.ui._missionSelectorFocus or 1) + 1)
+      elseif state.ui.isPaused then
+        movePauseMenuFocus(1)
+      end
+    end
+  elseif button == 'dpleft' then
+    if state.ui._handheldMode then
+      -- Toggle missions panel in handheld mode
+      state.ui.showMissionPanel = not state.ui.showMissionPanel
+    else
+      if state.ui.isBuildMenuOpen then
+        moveBuildMenuFocus(-1, 0)
+      end
+    end
+  elseif button == 'dpright' then
+    if state.ui._handheldMode then
+      -- D-pad right opens build menu in handheld mode
+      state.ui.isBuildMenuOpen = not state.ui.isBuildMenuOpen
+      if state.ui.isBuildMenuOpen then
+        -- Close other panels for clarity
+        state.ui.isVillagersPanelOpen = false
+        state.ui.isBuildQueueOpen = false
+        state.ui.isPaused = false
+        state.ui.isPlacingBuilding = false
+        state.ui.selectedBuildingType = nil
+        state.ui.isPlacingRoad = false
+        state.ui.roadStartTile = nil
+      end
+    else
+      -- Desktop mode: normal menu navigation
+      if state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
+        state.ui._missionSelectorFocus = math.min(#(state.ui._missionSelectorButtons or {}), (state.ui._missionSelectorFocus or 1) + 1)
+      elseif state.ui.isPaused then
+        movePauseMenuFocus(1)
+      end
     end
   elseif button == 'y' then
-    -- Toggle missions panel (handheld repurpose)
-    state.ui.showMissionPanel = not state.ui.showMissionPanel
+    -- Y button disabled in handheld mode
+    if not state.ui._handheldMode then
+      -- Toggle missions panel (desktop only)
+      state.ui.showMissionPanel = not state.ui.showMissionPanel
+    end
   elseif button == 'start' then
     if state.ui.isFoodPanelOpen then
       state.ui.isFoodPanelOpen = false
       state.ui.isPaused = false
     else
       state.ui.isPaused = not state.ui.isPaused
+      if state.ui.isPaused then
+        state.ui._pauseMenuFocus = 1
+      end
     end
   elseif button == 'back' or button == 'guide' then
     state.ui.isVillagersPanelOpen = not state.ui.isVillagersPanelOpen
@@ -1774,29 +2203,236 @@ function love.gamepadpressed(joy, button)
     state.ui.isPlacingRoad = false
     state.ui.roadStartTile = nil
   elseif button == 'leftshoulder' then
-    local s = state.time.speed or 1
-    if s == 8 then state.time.speed = 4 elseif s == 4 then state.time.speed = 2 elseif s == 2 then state.time.speed = 1 end
+    -- In retroid mode, L2 can also be mapped to left shoulder button
+    if state.ui._handheldMode then
+      local speeds = {1, 2, 4, 8}
+      local currentSpeed = state.time.speed or 1
+      local currentIndex = 1
+      for i, speed in ipairs(speeds) do
+        if speed == currentSpeed then
+          currentIndex = i
+          break
+        end
+      end
+      local nextIndex = (currentIndex % #speeds) + 1
+      state.time.speed = speeds[nextIndex]
+    else
+      local s = state.time.speed or 1
+      if s == 8 then state.time.speed = 4 elseif s == 4 then state.time.speed = 2 elseif s == 2 then state.time.speed = 1 end
+    end
   elseif button == 'rightshoulder' then
-    local s = state.time.speed or 1
-    if s == 1 then state.time.speed = 2 elseif s == 2 then state.time.speed = 4 elseif s == 4 then state.time.speed = 8 end
+    -- In retroid mode, R2 can also be mapped to right shoulder button
+    if state.ui._handheldMode then
+      state.ui._wheelMenuActive = true
+      state.ui._wheelMenuSelection = 0
+    else
+      local s = state.time.speed or 1
+      if s == 1 then state.time.speed = 2 elseif s == 2 then state.time.speed = 4 elseif s == 4 then state.time.speed = 8 end
+    end
   end
 end
 
 function love.gamepadaxis(joy, axis, value)
   gamepad = joy
+  
+  -- Debug: Print all axes to help identify R2
+  if state.ui._handheldMode and math.abs(value) > 0.1 then
+    print("Axis:", axis, "Value:", value)
+  end
+  
+  -- L2 trigger handling for game speed switching in retroid mode
+  if state.ui._handheldMode and (axis == 'lefttrigger' or axis == 'triggerleft') then
+    local wasActive = state.ui._l2Active or false
+    local isActive = value > 0.3
+    
+    -- L2 just pressed
+    if isActive and not wasActive then
+      local speeds = {1, 2, 4, 8}
+      local currentSpeed = state.time.speed or 1
+      local currentIndex = 1
+      for i, speed in ipairs(speeds) do
+        if speed == currentSpeed then
+          currentIndex = i
+          break
+        end
+      end
+      local nextIndex = (currentIndex % #speeds) + 1
+      state.time.speed = speeds[nextIndex]
+    end
+    
+    state.ui._l2Active = isActive
+  end
+  
+  -- R2 trigger handling for wheel menu in retroid mode
+  if state.ui._handheldMode and (axis == 'righttrigger' or axis == 'triggerright') then
+    local wasActive = state.ui._wheelMenuActive
+    state.ui._wheelMenuActive = value > 0.3
+    
+    -- Debug output to see if R2 is being detected
+    if state.ui._handheldMode then
+      print("R2 axis:", axis, "value:", value, "active:", state.ui._wheelMenuActive)
+    end
+    
+    -- Wheel menu just activated
+    if state.ui._wheelMenuActive and not wasActive then
+      -- Start with no selection (neutral center)
+      state.ui._wheelMenuSelection = 0
+      -- Disable virtual cursor when wheel menu is active
+      state.ui._useVirtualCursor = false
+    end
+    
+    -- Wheel menu just deactivated (R2 released)
+    if not state.ui._wheelMenuActive and wasActive then
+      -- Select the current building type (only if something is selected)
+      if state.ui._wheelMenuSelection > 0 then
+        local ui_mod = require('src.ui')
+        local opts = ui_mod.buildMenu.options or {}
+        local selectedOpt = opts[state.ui._wheelMenuSelection]
+        if selectedOpt then
+          if selectedOpt.key == 'road' then
+            state.ui.isPlacingRoad = true
+            state.ui.isPlacingBuilding = false
+            state.ui.selectedBuildingType = nil
+            state.ui.roadStartTile = nil
+          else
+            state.ui.selectedBuildingType = selectedOpt.key
+            state.ui.isPlacingBuilding = true
+          end
+        end
+      end
+    end
+  end
+  
   -- D-pad emulation varies; also support axes for menu focus
   if state.ui.isBuildMenuOpen then
     if (axis == 'lefty' or axis == 'dpdown') and value > 0.5 then
-      state.ui._buildMenuFocus = math.min(#require('src.ui').buildMenu.options, (state.ui._buildMenuFocus or 1) + 1)
+      moveBuildMenuFocus(0, 1)
     elseif (axis == 'lefty' or axis == 'dpup') and value < -0.5 then
-      state.ui._buildMenuFocus = math.max(1, (state.ui._buildMenuFocus or 1) - 1)
+      moveBuildMenuFocus(0, -1)
     elseif (axis == 'leftx' or axis == 'dpright') and value > 0.5 then
-      local cols = 2
-      local next = (state.ui._buildMenuFocus or 1) + 1
-      state.ui._buildMenuFocus = math.min(#require('src.ui').buildMenu.options, next)
+      moveBuildMenuFocus(1, 0)
     elseif (axis == 'leftx' or axis == 'dpleft') and value < -0.5 then
-      local prev = (state.ui._buildMenuFocus or 1) - 1
-      state.ui._buildMenuFocus = math.max(1, prev)
+      moveBuildMenuFocus(-1, 0)
+    end
+  end
+
+  -- Handheld: D-pad up/down open panels with edge detection when reported as axes
+  if state.ui._handheldMode then
+    if axis == 'dpup' then
+      if (state.ui._lastDpadAxis.up or 0) <= 0.5 and value > 0.5 then
+        state.ui.isBuildQueueOpen = not state.ui.isBuildQueueOpen
+        if state.ui.isBuildQueueOpen then
+          state.ui.isBuildMenuOpen = false
+          state.ui.isVillagersPanelOpen = false
+          state.ui.isPaused = false
+          state.ui.isPlacingBuilding = false
+          state.ui.selectedBuildingType = nil
+          state.ui.isPlacingRoad = false
+          state.ui.roadStartTile = nil
+          state.ui._queueFocusIndex = 1
+          state.ui._queueReorderActive = false
+        end
+      end
+      state.ui._lastDpadAxis.up = value
+    elseif axis == 'dpdown' then
+      if (state.ui._lastDpadAxis.down or 0) <= 0.5 and value > 0.5 then
+        state.ui.isVillagersPanelOpen = not state.ui.isVillagersPanelOpen
+        if state.ui.isVillagersPanelOpen then
+          state.ui.isBuildMenuOpen = false
+          state.ui.isBuildQueueOpen = false
+          state.ui.isPaused = false
+          state.ui.isPlacingBuilding = false
+          state.ui.selectedBuildingType = nil
+          state.ui.isPlacingRoad = false
+          state.ui.roadStartTile = nil
+          state.ui._villagersPanelFocus = 1
+        end
+      end
+      state.ui._lastDpadAxis.down = value
+    elseif axis == 'dpleft' then
+      if (state.ui._lastDpadAxis.left or 0) <= 0.5 and value > 0.5 then
+        state.ui.showMissionPanel = not state.ui.showMissionPanel
+      end
+      state.ui._lastDpadAxis.left = value
+    end
+
+    -- Left stick edge-detect for menu navigation (axis events)
+    if axis == 'lefty' then
+      local threshold = 0.35
+      local lastY = state.ui._lastStickState.y or 0
+      if value > threshold and lastY <= threshold then
+        if state.ui.isBuildMenuOpen then
+          moveBuildMenuFocus(0, 1)
+        elseif state.ui.isPaused then
+          movePauseMenuFocus(1)
+        elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
+          local count = #(state.ui._missionSelectorButtons or {})
+          local idx = (state.ui._missionSelectorFocus or 1)
+          if idx < count then state.ui._missionSelectorFocus = idx + 1 end
+        elseif state.ui.isVillagersPanelOpen and state.ui._villagersPanelButtons then
+          local count = #(state.ui._villagersPanelButtons or {})
+          state.ui._villagersPanelFocus = math.min(count, (state.ui._villagersPanelFocus or 1) + 1)
+        elseif state.ui.isBuildQueueOpen then
+          local count = #(state.game.buildQueue or {})
+          if count > 0 then
+            if state.ui._queueSelectedIndex then
+              -- Reorder mode: move selected item down
+              local selIdx = state.ui._queueSelectedIndex
+              if selIdx < count and state.game.buildQueue then
+                local q = state.game.buildQueue
+                local tmp = q[selIdx+1]
+                q[selIdx+1] = q[selIdx]
+                q[selIdx] = tmp
+                state.ui._queueSelectedIndex = selIdx + 1
+                state.ui._queueFocusIndex = selIdx + 1
+              end
+            else
+              -- Navigation mode: move focus down
+              state.ui._queueFocusIndex = math.min(count, (state.ui._queueFocusIndex or 1) + 1)
+            end
+          end
+        end
+      elseif value < -threshold and lastY >= -threshold then
+        if state.ui.isBuildMenuOpen then
+          moveBuildMenuFocus(0, -1)
+        elseif state.ui.isPaused then
+          movePauseMenuFocus(-1)
+        elseif state.ui.isMissionSelectorOpen and state.ui._missionSelectorButtons then
+          local idx = (state.ui._missionSelectorFocus or 1)
+          if idx > 1 then state.ui._missionSelectorFocus = idx - 1 end
+        elseif state.ui.isVillagersPanelOpen and state.ui._villagersPanelButtons then
+          state.ui._villagersPanelFocus = math.max(1, (state.ui._villagersPanelFocus or 1) - 1)
+        elseif state.ui.isBuildQueueOpen then
+          local count = #(state.game.buildQueue or {})
+          if count > 0 then
+            if state.ui._queueSelectedIndex then
+              -- Reorder mode: move selected item up
+              local selIdx = state.ui._queueSelectedIndex
+              if selIdx > 1 and state.game.buildQueue then
+                local q = state.game.buildQueue
+                local tmp = q[selIdx-1]
+                q[selIdx-1] = q[selIdx]
+                q[selIdx] = tmp
+                state.ui._queueSelectedIndex = selIdx - 1
+                state.ui._queueFocusIndex = selIdx - 1
+              end
+            else
+              -- Navigation mode: move focus up
+              state.ui._queueFocusIndex = math.max(1, (state.ui._queueFocusIndex or 1) - 1)
+            end
+          end
+        end
+      end
+      state.ui._lastStickState.y = value
+    elseif axis == 'leftx' then
+      local threshold = 0.35
+      local lastX = state.ui._lastStickState.x or 0
+      if value > threshold and lastX <= threshold then
+        if state.ui.isBuildMenuOpen then moveBuildMenuFocus(1, 0) end
+      elseif value < -threshold and lastX >= -threshold then
+        if state.ui.isBuildMenuOpen then moveBuildMenuFocus(-1, 0) end
+      end
+      state.ui._lastStickState.x = value
     end
   end
   -- Move virtual cursor with left stick when enabled
@@ -1857,5 +2493,64 @@ function love.mousereleased(x, y, button)
       end
     end
     return
+  end
+end
+
+function love.gamepadreleased(joy, button)
+  gamepad = joy
+  if button == 'rightshoulder' and state.ui._handheldMode then
+    -- Handle wheel menu selection when R2 is released
+    if state.ui._wheelMenuActive then
+      if state.ui._wheelMenuSelection > 0 then
+        local ui_mod = require('src.ui')
+        local opts = ui_mod.buildMenu.options or {}
+        local selectedOpt = opts[state.ui._wheelMenuSelection]
+        if selectedOpt then
+          if selectedOpt.key == 'road' then
+            state.ui.isPlacingRoad = true
+            state.ui.isPlacingBuilding = false
+            state.ui.selectedBuildingType = nil
+            state.ui.roadStartTile = nil
+          else
+            state.ui.selectedBuildingType = selectedOpt.key
+            state.ui.isPlacingBuilding = true
+          end
+        end
+      end
+      state.ui._wheelMenuActive = false
+      -- Re-enable virtual cursor when wheel menu is closed
+      if state.ui._handheldMode then
+        state.ui._useVirtualCursor = true
+      end
+    end
+  end
+end
+
+function love.keyreleased(key)
+  if key == 'r' and state.ui._handheldMode then
+    -- Handle wheel menu selection when R key is released
+    if state.ui._wheelMenuActive then
+      if state.ui._wheelMenuSelection > 0 then
+        local ui_mod = require('src.ui')
+        local opts = ui_mod.buildMenu.options or {}
+        local selectedOpt = opts[state.ui._wheelMenuSelection]
+        if selectedOpt then
+          if selectedOpt.key == 'road' then
+            state.ui.isPlacingRoad = true
+            state.ui.isPlacingBuilding = false
+            state.ui.selectedBuildingType = nil
+            state.ui.roadStartTile = nil
+          else
+            state.ui.selectedBuildingType = selectedOpt.key
+            state.ui.isPlacingBuilding = true
+          end
+        end
+      end
+      state.ui._wheelMenuActive = false
+      -- Re-enable virtual cursor when wheel menu is closed
+      if state.ui._handheldMode then
+        state.ui._useVirtualCursor = true
+      end
+    end
   end
 end

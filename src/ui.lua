@@ -288,6 +288,8 @@ end
 
 function ui.drawBuildMenu(state, buildingDefs)
   if not state.ui.isBuildMenuOpen and state.ui.buildMenuAlpha <= 0 then return end
+  -- Don't show regular build menu when wheel menu is active in retroid mode
+  if state.ui._handheldMode and state.ui._wheelMenuActive then return end
   ui.computeBuildMenuSize(buildingDefs)
   ui.computeBuildMenuHeight()
   local target = state.ui.isBuildMenuOpen and 1 or 0
@@ -438,12 +440,25 @@ function ui.drawVillagersPanel(state)
 
   local btns = {}
   local rowY = y + (handheld and 48 or 64)
+  local rowH = handheld and 22 or 28
+  local rowIndex = 0
   for _, b in ipairs(state.game.buildings) do
     if b.type == 'lumberyard' or b.type == 'builder' or b.type == 'farm' or b.type == 'research' then
+      rowIndex = rowIndex + 1
       local name = (b.type == 'lumberyard') and 'Lumberyard' or (b.type == 'builder' and 'Builders Workplace' or (b.type == 'farm' and 'Farm' or 'Research Center'))
       local maxSlots = (b.type == 'lumberyard') and (state.buildingDefs.lumberyard.numWorkers or 0)
         or (b.type == 'builder' and (state.buildingDefs.builder.numWorkers or 0)
         or (b.type == 'farm' and (state.buildingDefs.farm.numWorkers or 0) or (state.buildingDefs.research.numWorkers or 0)))
+
+      -- Handheld focus highlight for current row
+      if handheld then
+        local isFocused = (state.ui._villagersPanelFocus or 1) == rowIndex
+        if isFocused then
+          love.graphics.setColor(0.20, 0.78, 0.30, 0.15)
+          love.graphics.rectangle('fill', x + 8, rowY - 6, w - 16, rowH + 8, 6, 6)
+        end
+      end
+
       love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
       love.graphics.print(string.format('%s %d/%d  (%d,%d)', name, b.assigned or 0, maxSlots, b.tileX, b.tileY), x + 12, rowY)
       local btnW, btnH = handheld and 22 or 28, handheld and 20 or 24
@@ -466,7 +481,7 @@ function ui.drawVillagersPanel(state)
       love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
       love.graphics.printf('+', addX, addY + 4, btnW, 'center')
       table.insert(btns, { type = b.type, b = b, add = { x = addX, y = addY, w = btnW, h = btnH }, rem = { x = remX, y = remY, w = btnW, h = btnH } })
-      rowY = rowY + (handheld and 22 or 28)
+      rowY = rowY + rowH
     end
   end
   state.ui._villagersPanelButtons = btns
@@ -477,17 +492,23 @@ function ui.drawBuildQueue(state)
   if not state.ui.isBuildQueueOpen then return end
   local screenW, screenH = love.graphics.getDimensions()
   local handheld = state.ui._handheldMode
-  local w, h = handheld and 460 or 560, handheld and 220 or 260
+  local w, h = handheld and 520 or 560, handheld and 260 or 260
   -- Always center the panel in the middle of the screen
   local x = (screenW - w) / 2
   local y = (screenH - h) / 2
   drawParchmentPanel(x, y, w, h)
   love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
   if handheld then pushTinyFont() end
-  love.graphics.print('Build Queue', x + 12, y + 12)
+  
+  -- Show selection status in title
+  local title = 'Build Queue'
+  if handheld and state.ui._queueSelectedIndex then
+    title = 'Build Queue — Reordering'
+  end
+  love.graphics.print(title, x + 12, y + 12)
+  
   local headerY = y + 36
-  local rowH = handheld and 26 or 34
-  local btnW, btnH = handheld and 18 or 24, handheld and 16 or 20
+  local rowH = handheld and 28 or 34
   state.ui._queueButtons = {}
   state.ui._queueHoverId = nil
   state.ui._queueLayout = { headerY = headerY, rowH = rowH, x = x, y = y, w = w, h = h }
@@ -495,9 +516,17 @@ function ui.drawBuildQueue(state)
   for _, b in ipairs(state.game.buildings) do byId[b.id] = b end
   local qraw = state.game.buildQueue or {}
   if #qraw == 0 then
-    love.graphics.setColor(colors.text)
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
     love.graphics.print('Queue is empty. Place buildings to add plans here.', x + 12, headerY)
+    if handheld then popUIFont() end
     return
+  end
+  
+  -- Show controls hint in handheld mode
+  if handheld then
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+    local hintText = state.ui._queueSelectedIndex and 'Stick: Move • A: Deselect • B: Close' or 'Stick: Navigate • A: Select • B: Close'
+    love.graphics.print(hintText, x + 12, y + h - 24)
   end
   -- draw in current queue order; top is highest priority
   local drag = state.ui._queueDrag
@@ -513,75 +542,66 @@ function ui.drawBuildQueue(state)
       if hovered then state.ui._queueHoverId = b.id end
       local isDraggedRow = (drag and drag.id == b.id)
       if not isDraggedRow then
-        love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
-        love.graphics.rectangle('fill', rowRect.x - 2, rowRect.y + 2, rowRect.w + 4, rowRect.h + 4, 6, 6)
+        -- fancier row: shadow + inner plate
+        love.graphics.setColor(0, 0, 0, 0.25)
+        love.graphics.rectangle('fill', rowRect.x + 2, rowRect.y + 3, rowRect.w, rowRect.h, 6, 6)
         love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
         love.graphics.rectangle('fill', rowRect.x, rowRect.y, rowRect.w, rowRect.h, 6, 6)
         love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
         love.graphics.rectangle('line', rowRect.x, rowRect.y, rowRect.w, rowRect.h, 6, 6)
-        if hovered then love.graphics.setColor(0.20, 0.78, 0.30, 0.12); love.graphics.rectangle('fill', rowRect.x+2, rowRect.y+2, rowRect.w-4, rowRect.h-4, 4, 4) end
+        -- Handheld focus highlight for left-stick navigation
+        local focused = handheld and ((state.ui._queueFocusIndex or 1) == i)
+        local selected = handheld and (state.ui._queueSelectedIndex == i)
+        if selected then
+          -- Selected item for reordering (bright highlight)
+          love.graphics.setColor(0.95, 0.7, 0.2, 0.4)
+          love.graphics.rectangle('fill', rowRect.x + 1, rowRect.y + 1, rowRect.w - 2, rowRect.h - 2, 6, 6)
+          love.graphics.setColor(0.95, 0.7, 0.2, 0.8)
+          love.graphics.rectangle('line', rowRect.x + 2, rowRect.y + 2, rowRect.w - 4, rowRect.h - 4, 6, 6)
+        elseif hovered or focused then
+          -- Regular focus/hover
+          love.graphics.setColor(0.20, 0.78, 0.30, 0.15)
+          love.graphics.rectangle('fill', rowRect.x + 3, rowRect.y + 3, rowRect.w - 6, rowRect.h - 6, 6, 6)
+        end
         love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
         -- icon
         buildings.drawIcon(b.type, x + 18, ry + (rowH/2), handheld and 18 or 24, 0)
         -- name + coords
+        love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
         local status
         if b.construction and b.construction.complete then status = 'Complete'
         elseif b.construction and b.construction.waitingForResources then status = 'Waiting'
         elseif b._claimedBy then status = 'Building…' else status = 'Ready' end
-        love.graphics.print(string.format('%s  (%d,%d)  [%s]', b.type, b.tileX, b.tileY, status), x + 44, ry + 8)
-        -- priority up/down
-        local upx = x + w - (handheld and 180 or 200); local upy = ry + (handheld and 4 or 6)
-        local dnx = upx + btnW + 6; local dny = upy
-        love.graphics.setColor(0.35,0.22,0.12,1.0)
-        love.graphics.rectangle('fill', upx-2, upy+2, btnW+4, btnH+4, 6, 6)
-        love.graphics.setColor(0.95,0.82,0.60,1.0)
-        love.graphics.rectangle('fill', upx, upy, btnW, btnH, 6, 6)
-        love.graphics.setColor(0.78,0.54,0.34,1.0)
-        love.graphics.rectangle('line', upx, upy, btnW, btnH, 6, 6)
-        love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
-        love.graphics.printf('^', upx, upy + 2, btnW, 'center')
-        love.graphics.setColor(0.35,0.22,0.12,1.0)
-        love.graphics.rectangle('fill', dnx-2, dny+2, btnW+4, btnH+4, 6, 6)
-        love.graphics.setColor(0.95,0.82,0.60,1.0)
-        love.graphics.rectangle('fill', dnx, dny, btnW, btnH, 6, 6)
-        love.graphics.setColor(0.78,0.54,0.34,1.0)
-        love.graphics.rectangle('line', dnx, dny, btnW, btnH, 6, 6)
-        love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
-        love.graphics.printf('v', dnx, dny + 2, btnW, 'center')
-        -- pause/resume
-        local px = x + w - (handheld and 120 or 140); local py = upy
-        local label = (q.paused and 'Resume') or 'Pause'
-        local pw = handheld and 56 or 64
-        love.graphics.setColor(0.35,0.22,0.12,1.0)
-        love.graphics.rectangle('fill', px-2, py+2, pw+4, btnH+4, 6, 6)
-        love.graphics.setColor(0.95,0.82,0.60,1.0)
-        love.graphics.rectangle('fill', px, py, pw, btnH, 6, 6)
-        love.graphics.setColor(0.78,0.54,0.34,1.0)
-        love.graphics.rectangle('line', px, py, pw, btnH, 6, 6)
-        love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
-        love.graphics.printf(label, px, py + 2, pw, 'center')
-        -- remove
-        local rx = x + w - (handheld and 64 or 70); local ryb = upy
-        love.graphics.setColor(0.35,0.22,0.12,1.0)
-        love.graphics.rectangle('fill', rx-2, ryb+2, 60+4, btnH+4, 6, 6)
-        love.graphics.setColor(0.90, 0.35, 0.25, 1.0)
-        love.graphics.rectangle('fill', rx, ryb, 60, btnH, 6, 6)
-        love.graphics.setColor(0.78,0.54,0.34,1.0)
-        love.graphics.rectangle('line', rx, ryb, 60, btnH, 6, 6)
-        love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
-        love.graphics.printf('Remove', rx, ryb + 2, 60, 'center')
-
+        love.graphics.print(string.format('%s  (%d,%d)  [%s]', b.type, b.tileX, b.tileY, status), x + 44, ry + (handheld and 6 or 8))
+        -- On handheld, omit pause/remove buttons and provide simple reorder hints
+        if not handheld then
+          local btnW, btnH = 24, 20
+          local upx = x + w - 200; local upy = ry + 6
+          local dnx = upx + btnW + 6; local dny = upy
+          love.graphics.setColor(0.35,0.22,0.12,1.0)
+          love.graphics.rectangle('fill', upx-2, upy+2, btnW+4, btnH+4, 6, 6)
+          love.graphics.setColor(0.95,0.82,0.60,1.0)
+          love.graphics.rectangle('fill', upx, upy, btnW, btnH, 6, 6)
+          love.graphics.setColor(0.78,0.54,0.34,1.0)
+          love.graphics.rectangle('line', upx, upy, btnW, btnH, 6, 6)
+          love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+          love.graphics.printf('^', upx, upy + 2, btnW, 'center')
+          love.graphics.setColor(0.35,0.22,0.12,1.0)
+          love.graphics.rectangle('fill', dnx-2, dny+2, btnW+4, btnH+4, 6, 6)
+          love.graphics.setColor(0.95,0.82,0.60,1.0)
+          love.graphics.rectangle('fill', dnx, dny, btnW, btnH, 6, 6)
+          love.graphics.setColor(0.78,0.54,0.34,1.0)
+          love.graphics.rectangle('line', dnx, dny, btnW, btnH, 6, 6)
+          love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+          love.graphics.printf('v', dnx, dny + 2, btnW, 'center')
+        end
         state.ui._queueButtons[#state.ui._queueButtons + 1] = {
           id = b.id,
           row = i,
-          up = { x = upx, y = upy, w = btnW, h = btnH },
-          down = { x = dnx, y = dny, w = btnW, h = btnH },
-          pause = { x = px, y = py, w = pw, h = btnH },
-          remove = { x = rx, y = ryb, w = 60, h = btnH },
           rowRect = rowRect
         }
       end
-      -- compute tentative drop index while dragging
+      -- compute tentative drop index while dragging (desktop drag)
       if drag then
         local midY = ry + rowH / 2
         if not dropIndex and my < midY then dropIndex = i end
@@ -598,26 +618,24 @@ function ui.drawBuildQueue(state)
     if idx == 1 then lineY = headerY - 2 else lineY = headerY + (idx - 1) * rowH - 4 end
     love.graphics.setColor(1, 1, 0.5, 0.7)
     love.graphics.rectangle('fill', x + 10, lineY, w - 20, 2)
-    -- draw floating row at mouse
-    local floatY = my - (drag.offsetY or 0)
-    love.graphics.setColor(0, 0, 0, 0.35)
-    love.graphics.rectangle('fill', x + 8, floatY, w - 16, rowH - 4, 6, 6)
-    love.graphics.setColor(colors.text)
-    local b = nil
-    for _, bb in ipairs(state.game.buildings) do if bb.id == drag.id then b = bb; break end end
-    if b then
-      buildings.drawIcon(b.type, x + 18, floatY + (rowH/2), 24, 0)
-      local status
-      if b.construction and b.construction.complete then status = 'Complete'
-      elseif b.construction and b.construction.waitingForResources then status = 'Waiting'
-      elseif b._claimedBy then status = 'Building…' else status = 'Ready' end
-      love.graphics.print(string.format('%s  (%d,%d)  [%s]', b.type, b.tileX, b.tileY, status), x + 44, floatY + 8)
-    end
   else
     state.ui._queueDropIndex = nil
   end
+
+  -- Handheld hint footer
+  if handheld then
+    local hint = state.ui._queueReorderActive and 'Flick Up/Down to move. B to finish.' or 'A: Select to reorder. Up/Down: change focus.'
+    love.graphics.setColor(0, 0, 0, 0.25)
+    love.graphics.rectangle('fill', x + 8, y + h - 30 + 3, w - 16, 24, 6, 6)
+    love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
+    love.graphics.rectangle('fill', x + 8, y + h - 30, w - 16, 24, 6, 6)
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+    love.graphics.printf(hint, x + 8, y + h - 26, w - 16, 'center')
+  end
+
   if handheld then popUIFont() end
 end
+
 -- Minimap (top-right). Shows roads, trees, buildings, and camera viewport.
 function ui.drawMiniMap(state)
   local TILE = constants.TILE_SIZE
@@ -633,9 +651,6 @@ function ui.drawMiniMap(state)
 
   -- Place at top-right; if villagers panel open, place below it
   local yOffset = isSmallScreen() and 12 or 16
-  if state.ui.isVillagersPanelOpen then
-    yOffset = yOffset + 140 + 8 -- villagers panel height + gap
-  end
   local x = screenW - padding - mapW
   local y = yOffset
 
@@ -750,7 +765,7 @@ function ui.drawHUD(state)
   local isDay = (tnorm >= 0.25 and tnorm < 0.75)
   love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
   if handheld then
-    -- Compose single-line HUD and size parchment to fit
+    -- Compose single-line HUD and size parchment to fit (no extra whitespace)
     local font = love.graphics.getFont()
     local parts = {}
     local woodStr = string.format("Wood:%d", totalWood)
@@ -773,12 +788,15 @@ function ui.drawHUD(state)
     local sep = "   "
     local label = table.concat(parts, sep)
     local textW = font:getWidth(label)
-    local pad = 12
-    local neededW = textW + pad * 2
-    -- redraw parchment with exact width needed
+    local textH = font:getHeight()
+    local padH = 12
+    local padW = 12
+    local neededW = textW + padW * 2
+    local neededH = textH + padH * 2
+    -- redraw parchment with exact size needed
     w = math.min(neededW, love.graphics.getWidth() - x - 12)
-    drawParchmentPanel(x, y, w, h)
-    state.ui._hudBounds = { x = x, y = y, w = w, h = h }
+    drawParchmentPanel(x, y, w, neededH)
+    state.ui._hudBounds = { x = x, y = y, w = w, h = neededH }
     -- match prompt text color
     love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
     love.graphics.print(label, lineX, lineY)
@@ -1171,11 +1189,30 @@ function ui.drawPrompt(state)
   local hud = state.ui._hudBounds
   local baseY
   if handheld and hud then
-    baseY = hud.y + hud.h + 6
+    -- Prefer right of HUD in handheld
+    local spacing = 8
+    baseX = hud.x + hud.w + spacing
+    baseY = hud.y
+    -- Constrain width to available space, avoiding minimap if present
+    local mm = state.ui._miniMap
+    local rightMargin = 16
+    local maxRight = screenW - rightMargin
+    if mm then maxRight = math.min(maxRight, mm.x - spacing) end
+    -- If not enough horizontal space, fall back to below HUD
+    if baseX + 120 > maxRight then
+      baseX = 16
+      baseY = hud.y + hud.h + 6
+    end
   else
     baseY = (handheld and 96 or 128)
   end
-  local w = math.min(handheld and 360 or 520, screenW - baseX - 16)
+  -- Compute prompt width to fit available space
+  local rightLimit = screenW - 16
+  local mm = state.ui._miniMap
+  if handheld and mm and baseY >= (state.ui._hudBounds and state.ui._hudBounds.y or 0) and baseX < mm.x then
+    rightLimit = math.min(rightLimit, mm.x - 8)
+  end
+  local w = math.min(handheld and 360 or 520, rightLimit - baseX)
   local h = handheld and 42 or 56
   local spacing = 8
   local y = baseY
@@ -1194,6 +1231,137 @@ function ui.drawPrompt(state)
     love.graphics.printf(p.text or '', baseX + 12, y + (handheld and 10 or 16), w - 24, 'left')
     if handheld then popUIFont() end
     y = y + h + spacing
+  end
+end
+
+function ui.drawWheelMenu(state)
+  if not state.ui._wheelMenuActive or not state.ui._handheldMode then return end
+  
+  local screenW, screenH = love.graphics.getDimensions()
+  local centerX, centerY = screenW / 2, screenH / 2
+  
+  -- Dim background
+  love.graphics.setColor(0, 0, 0, 0.5)
+  love.graphics.rectangle("fill", 0, 0, screenW, screenH)
+  
+  local opts = ui.buildMenu.options or {}
+  local count = #opts
+  if count == 0 then return end
+  
+  -- Layout numbers
+  local radius = 130
+  local itemRadius = 26
+  local angleStep = (2 * math.pi) / count
+  
+  -- Decorative outer ring
+  love.graphics.setColor(0, 0, 0, 0.35)
+  love.graphics.circle('fill', centerX + 3, centerY + 4, radius + 42)
+  love.graphics.setColor(0.92, 0.80, 0.58, 1.0)
+  love.graphics.setLineWidth(3)
+  love.graphics.circle('line', centerX, centerY, radius + 40)
+  love.graphics.setLineWidth(1)
+  -- Tick marks for each slice
+  for i = 1, count do
+    local ang = (i - 1) * angleStep - math.pi / 2
+    local tx1 = centerX + math.cos(ang) * (radius + 34)
+    local ty1 = centerY + math.sin(ang) * (radius + 34)
+    local tx2 = centerX + math.cos(ang) * (radius + 46)
+    local ty2 = centerY + math.sin(ang) * (radius + 46)
+    love.graphics.setColor(0.65, 0.46, 0.24, 1.0)
+    love.graphics.setLineWidth(2)
+    love.graphics.line(tx1, ty1, tx2, ty2)
+    love.graphics.setLineWidth(1)
+  end
+  
+  -- Spokes and items
+  local selIdx = state.ui._wheelMenuSelection or 0
+  for i, opt in ipairs(opts) do
+    local angle = (i - 1) * angleStep - math.pi / 2  -- Start from top
+    local x = centerX + math.cos(angle) * radius
+    local y = centerY + math.sin(angle) * radius
+    
+    -- Spoke
+    love.graphics.setColor(0.18, 0.11, 0.06, 0.25)
+    love.graphics.setLineWidth(2)
+    love.graphics.line(centerX, centerY, x, y)
+    love.graphics.setLineWidth(1)
+
+    local isSelected = (selIdx == i)
+
+    -- Shadow/glow behind item
+    if isSelected then
+      local pulse = 0.25 + 0.25 * math.sin(love.timer.getTime() * 6)
+      love.graphics.setColor(0.95, 0.90, 0.45, 0.55 + pulse)
+      love.graphics.circle('fill', x, y, itemRadius + 10)
+      love.graphics.setColor(0.20, 0.78, 0.30, 0.75)
+      love.graphics.setLineWidth(4)
+      love.graphics.circle('line', x, y, itemRadius + 12)
+      love.graphics.setLineWidth(1)
+    else
+      love.graphics.setColor(0, 0, 0, 0.20)
+      love.graphics.circle('fill', x + 2, y + 3, itemRadius + 6)
+    end
+
+    -- Item button plate
+    love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
+    love.graphics.circle('fill', x, y, itemRadius)
+    love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
+    love.graphics.circle('fill', x, y, itemRadius - 2)
+    love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
+    love.graphics.circle('line', x, y, itemRadius - 2)
+    
+    -- Item icon surface
+    love.graphics.setColor(opt.color or {0.5, 0.5, 0.5, 1.0})
+    love.graphics.circle('fill', x, y, itemRadius - 8)
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+    love.graphics.circle('line', x, y, itemRadius - 8)
+    
+    -- Draw building icon inside
+    love.graphics.push()
+    love.graphics.translate(x, y)
+    local scale = isSelected and 0.70 or 0.60
+    love.graphics.scale(scale, scale)
+    buildings.drawIcon(opt.key, 0, 0, (itemRadius - 8) * 1.8, 0)
+    love.graphics.pop()
+    
+    -- No per-item label (only selected name will be shown separately)
+  end
+  
+  -- Center hub
+  love.graphics.setColor(0.32, 0.20, 0.10, 1.0)
+  love.graphics.circle('fill', centerX + 2, centerY + 3, 22)
+  love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
+  love.graphics.circle('fill', centerX, centerY, 20)
+  love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
+  love.graphics.circle('line', centerX, centerY, 20)
+
+  -- Pointer arrow towards current selection
+  if selIdx and selIdx > 0 then
+    local ang = (selIdx - 1) * angleStep - math.pi / 2
+    local px = centerX + math.cos(ang) * (radius - 24)
+    local py = centerY + math.sin(ang) * (radius - 24)
+    local left = ang + math.pi * 0.5
+    local right = ang - math.pi * 0.5
+    love.graphics.setColor(0.20, 0.78, 0.30, 0.9)
+    love.graphics.polygon('fill',
+      px, py,
+      centerX + math.cos(left) * 12, centerY + math.sin(left) * 12,
+      centerX + math.cos(right) * 12, centerY + math.sin(right) * 12
+    )
+  end
+
+  -- Selected label only
+  if selIdx and selIdx > 0 then
+    local label = opts[selIdx] and opts[selIdx].label or ''
+    if opts[selIdx] and opts[selIdx].key == 'road' then label = 'Road' end
+    love.graphics.setColor(0, 0, 0, 0.25)
+    love.graphics.rectangle('fill', centerX - 140 + 3, centerY + radius + 20 + 3, 280, 34, 8, 8)
+    love.graphics.setColor(0.95, 0.82, 0.60, 1.0)
+    love.graphics.rectangle('fill', centerX - 140, centerY + radius + 20, 280, 34, 8, 8)
+    love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
+    love.graphics.rectangle('line', centerX - 140, centerY + radius + 20, 280, 34, 8, 8)
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+    love.graphics.printf(label, centerX - 140, centerY + radius + 26, 280, 'center')
   end
 end
 
@@ -1229,6 +1397,11 @@ function ui.drawPauseMenu(state)
       love.graphics.rectangle('fill', ox, btnY, btnW, btnH, 8, 8)
       love.graphics.setColor(0.78, 0.54, 0.34, 1.0)
       love.graphics.rectangle('line', ox, btnY, btnW, btnH, 8, 8)
+      -- Add more prominent focus highlighting for handheld mode
+      if focused and state.ui._handheldMode then
+        love.graphics.setColor(0.20, 0.78, 0.30, 0.25)
+        love.graphics.rectangle('fill', ox + 3, btnY + 3, btnW - 6, btnH - 6, 6, 6)
+      end
     else
       love.graphics.setColor(0.35, 0.22, 0.12, 1.0)
       love.graphics.rectangle('fill', ox - 2, btnY + 2, btnW + 4, btnH + 4, 8, 8)
@@ -1447,6 +1620,47 @@ function ui.drawSelectedPanel(state)
   love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
   love.graphics.printf('Demolish', bx, by + 6, btnW, 'center')
   sel._demolishBtn = { x = bx, y = by, w = btnW, h = btnH }
+end
+
+function ui.drawControlsOverlay(state)
+  if not state.ui._handheldMode or not state.ui._controlsOverlayOpen then return end
+  local screenW, screenH = love.graphics.getDimensions()
+  love.graphics.setColor(0, 0, 0, 0.45)
+  love.graphics.rectangle('fill', 0, 0, screenW, screenH)
+
+  local w, h = 520, 360
+  local x, y = (screenW - w) / 2, (screenH - h) / 2
+  drawParchmentPanel(x, y, w, h)
+
+  local line = y + 16
+  local function printRow(label)
+    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+    love.graphics.print(label, x + 16, line)
+    line = line + 26
+  end
+
+  love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+  love.graphics.print('Handheld Controls', x + 16, line)
+  line = line + 32
+
+  -- Buttons
+  printRow('A: Confirm / Select')
+  printRow('B: Cancel / Secondary click')
+  printRow('X: Toggle this controls overlay')
+  printRow('Start: Toggle Pause Menu')
+  printRow('L2: Cycle Game Speed (1x,2x,4x,8x)')
+  printRow('R2: Hold for Build Wheel; release to select')
+
+  line = line + 12
+  printRow('D-Pad Up: Toggle Build Queue')
+  printRow('D-Pad Down: Toggle Villagers Panel')
+
+  line = line + 12
+  printRow('Left Stick: Move camera cursor (when no menu/wheel is open)')
+  printRow('Left Stick (in Wheel): Point to select; neutral centers')
+
+  love.graphics.setColor(0.18, 0.11, 0.06, 0.75)
+  love.graphics.printf('Press X again to close', x, y + h - 28, w, 'center')
 end
 
 return ui 
