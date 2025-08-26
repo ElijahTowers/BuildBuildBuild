@@ -642,20 +642,47 @@ function ui.drawMiniMap(state)
   local world = state.world
   if world.tilesX <= 0 or world.tilesY <= 0 then return end
 
-  local padding = 16
   local screenW, screenH = love.graphics.getDimensions()
-  local desiredW = isSmallScreen() and 140 or 180
-  local scale = desiredW / world.tilesX
-  local mapW = desiredW
-  local mapH = world.tilesY * scale
+  local padding = 16
+  local x, y, mapW, mapH, scale
 
-  -- Place at top-right; if villagers panel open, place below it
-  local yOffset = isSmallScreen() and 12 or 16
-  local x = screenW - padding - mapW
-  local y = yOffset
+  if state.ui.isMinimapFullscreen then
+    -- Fullscreen minimap mode
+    local maxW = screenW - padding * 2
+    local maxH = screenH - padding * 2
+    
+    -- Calculate scale to fit either width or height
+    local scaleW = maxW / world.tilesX
+    local scaleH = maxH / world.tilesY
+    scale = math.min(scaleW, scaleH)
+    
+    mapW = world.tilesX * scale
+    mapH = world.tilesY * scale
+    
+    -- Center the map on screen
+    x = (screenW - mapW) / 2
+    y = (screenH - mapH) / 2
+  else
+    -- Regular minimap mode
+    local desiredW = isSmallScreen() and 140 or 180
+    scale = desiredW / world.tilesX
+    mapW = desiredW
+    mapH = world.tilesY * scale
+
+    -- Place at top-right; if villagers panel open, place below it
+    local yOffset = isSmallScreen() and 12 or 16
+    x = screenW - padding - mapW
+    y = yOffset
+  end
 
   -- Store for click handling
   state.ui._miniMap = { x = x, y = y, w = mapW, h = mapH, scale = scale }
+
+  -- Fullscreen background overlay
+  if state.ui.isMinimapFullscreen then
+    love.graphics.setColor(0, 0, 0, 0.8)
+    love.graphics.rectangle('fill', 0, 0, screenW, screenH)
+  end
 
   -- Opaque grassy backdrop only (no outer frame)
   love.graphics.setColor(0.15, 0.26, 0.14, 1.0)
@@ -719,6 +746,14 @@ function ui.drawMiniMap(state)
   local vh = viewTilesH * scale
   love.graphics.setColor(1, 1, 1, 0.8)
   love.graphics.rectangle('line', vx, vy, vw, vh)
+
+  -- Exit hint for fullscreen mode
+  if state.ui.isMinimapFullscreen then
+    pushTinyFont()
+    love.graphics.setColor(1, 1, 1, 0.9)
+    love.graphics.print("Left stick to navigate • D-pad Right/A/B to exit", x + 10, y + mapH - 20)
+    popUIFont()
+  end
 end
 
 function ui.drawHUD(state)

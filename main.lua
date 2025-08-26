@@ -378,6 +378,7 @@ function love.update(dt)
       or state.ui.isPaused == true
       or state.ui._wheelMenuActive == true
       or state.ui._controlsOverlayOpen == true
+      or state.ui.isMinimapFullscreen == true
     if navigableOpen then
       state.ui._useVirtualCursor = false
     else
@@ -608,6 +609,44 @@ function love.update(dt)
   if not isInitial then
     workers.update(state, sdt)
   end
+
+  -- Smooth camera pan when fullscreen minimap is active (left-stick only)
+  if state.ui.isMinimapFullscreen and state.ui._handheldMode then
+    if not gamepad or not gamepad:isConnected() then
+      if love.joystick and love.joystick.getJoysticks then
+        local joys = love.joystick.getJoysticks()
+        if joys and #joys > 0 then gamepad = joys[1] end
+      end
+    end
+    if gamepad and gamepad:isConnected() then
+      local ax = gamepad:getGamepadAxis('leftx') or 0
+      local ay = gamepad:getGamepadAxis('lefty') or 0
+      local dz = 0.08
+      local function axisToVel(v)
+        local av = math.abs(v)
+        if av <= dz then return 0 end
+        local n = (av - dz) / (1.0 - dz)
+        local base = 2200
+        local maxAdd = 3800
+        local speed = base + (n * n) * maxAdd
+        return (v > 0 and 1 or -1) * n * speed
+      end
+      local targetVX = axisToVel(ax)
+      local targetVY = axisToVel(ay)
+      local smooth = 0.18
+      state.ui._minimapPanVX = state.ui._minimapPanVX * (1 - smooth) + targetVX * smooth
+      state.ui._minimapPanVY = state.ui._minimapPanVY * (1 - smooth) + targetVY * smooth
+
+      local screenW, screenH = love.graphics.getDimensions()
+      local viewW = screenW / state.camera.scale
+      local viewH = screenH / state.camera.scale
+      local TILE = C.TILE_SIZE
+      local maxX = math.max(0, (state.world.tilesX * TILE) - viewW)
+      local maxY = math.max(0, (state.world.tilesY * TILE) - viewH)
+      state.camera.x = utils.clamp(state.camera.x + state.ui._minimapPanVX * dt, 0, maxX)
+      state.camera.y = utils.clamp(state.camera.y + state.ui._minimapPanVY * dt, 0, maxY)
+    end
+  end
   buildings.update(state, sdt)
   particles.update(state.game.particles, sdt)
   trees.updateShake(state, sdt)
@@ -626,7 +665,7 @@ function love.update(dt)
     local ay = gamepad:getGamepadAxis("lefty") or 0
     
     -- Discrete menu navigation in handheld mode (works even when virtual cursor is suppressed)
-    if state.ui._handheldMode then
+    if state.ui._handheldMode and not state.ui.isMinimapFullscreen then
       local lastX, lastY = state.ui._lastStickState.x, state.ui._lastStickState.y
       local threshold = 0.5
       
@@ -944,8 +983,8 @@ function love.draw()
   -- Day-night overlay over world and under UI
   drawDayNightOverlay()
 
-  -- Draw virtual cursor when a gamepad is present (UI-space)
-  if gamepad and gamepad:isConnected() and state.ui._virtualCursor then
+  -- Draw virtual cursor when a gamepad is present (UI-space) - but not when minimap is fullscreen
+  if gamepad and gamepad:isConnected() and state.ui._virtualCursor and not state.ui.isMinimapFullscreen then
     local x, y = state.ui._virtualCursor.x, state.ui._virtualCursor.y
     if state.ui._useVirtualCursor and not state.ui._wheelMenuActive then
       if state.ui._handheldMode then
@@ -1996,6 +2035,11 @@ function love.gamepadpressed(joy, button)
     end
   end
   if button == 'a' then
+    -- Exit fullscreen minimap
+    if state.ui.isMinimapFullscreen and state.ui._handheldMode then
+      state.ui.isMinimapFullscreen = false
+      return
+    end
     if state.ui.isBuildQueueOpen and state.ui._handheldMode then
       -- A button in queue panel: toggle selection of current item for reordering
       local queueCount = #(state.game.buildQueue or {})
@@ -2045,6 +2089,11 @@ function love.gamepadpressed(joy, button)
     local x, y = state.ui._virtualCursor.x or 0, state.ui._virtualCursor.y or 0
     love.mousepressed(x, y, 1)
   elseif button == 'b' then
+    -- Exit fullscreen minimap
+    if state.ui.isMinimapFullscreen and state.ui._handheldMode then
+      state.ui.isMinimapFullscreen = false
+      return
+    end
     if state.ui.isBuildQueueOpen and state.ui._handheldMode then
       -- B button in queue panel: close the panel and clear selections
       state.ui.isBuildQueueOpen = false
@@ -2156,10 +2205,11 @@ function love.gamepadpressed(joy, button)
     end
   elseif button == 'dpright' then
     if state.ui._handheldMode then
-      -- D-pad right opens build menu in handheld mode
-      state.ui.isBuildMenuOpen = not state.ui.isBuildMenuOpen
-      if state.ui.isBuildMenuOpen then
-        -- Close other panels for clarity
+      -- D-pad right toggles fullscreen minimap in handheld mode
+      state.ui.isMinimapFullscreen = not state.ui.isMinimapFullscreen
+      if state.ui.isMinimapFullscreen then
+        -- Close other panels when minimap goes fullscreen
+        state.ui.isBuildMenuOpen = false
         state.ui.isVillagersPanelOpen = false
         state.ui.isBuildQueueOpen = false
         state.ui.isPaused = false
@@ -2167,6 +2217,8 @@ function love.gamepadpressed(joy, button)
         state.ui.selectedBuildingType = nil
         state.ui.isPlacingRoad = false
         state.ui.roadStartTile = nil
+        -- Reset minimap pan velocity
+        state.ui._minimapPanVX, state.ui._minimapPanVY = 0, 0
       end
     else
       -- Desktop mode: normal menu navigation
@@ -2235,6 +2287,37 @@ function love.gamepadaxis(joy, axis, value)
   -- Debug: Print all axes to help identify R2
   if state.ui._handheldMode and math.abs(value) > 0.1 then
     print("Axis:", axis, "Value:", value)
+  end
+  
+  -- Fullscreen minimap navigation with left stick (disable all other left stick functions)
+  if state.ui.isMinimapFullscreen and state.ui._handheldMode then
+    if axis == 'leftx' or axis == 'lefty' then
+      local deadzone = 0.08 -- Much smaller deadzone for better responsiveness
+      if math.abs(value) > deadzone then
+        -- Much faster speed with exponential curve for snappy response
+        local normalizedValue = (math.abs(value) - deadzone) / (1.0 - deadzone)
+        local speed = 2000 + (normalizedValue * normalizedValue * 3000) -- Base 2000, up to 5000 for full deflection
+        local direction = value > 0 and 1 or -1
+        local dt = love.timer.getDelta() -- Use actual frame time for smooth movement
+        
+        if axis == 'leftx' then
+          state.camera.x = state.camera.x + direction * normalizedValue * speed * dt
+        elseif axis == 'lefty' then
+          state.camera.y = state.camera.y + direction * normalizedValue * speed * dt
+        end
+        
+        -- Clamp camera to world bounds with some padding for edge visibility
+        local TILE = C.TILE_SIZE
+        local screenW, screenH = love.graphics.getDimensions()
+        local viewW = screenW / state.camera.scale
+        local viewH = screenH / state.camera.scale
+        local maxX = math.max(0, (state.world.tilesX * TILE) - viewW)
+        local maxY = math.max(0, (state.world.tilesY * TILE) - viewH)
+        state.camera.x = utils.clamp(state.camera.x, 0, maxX)
+        state.camera.y = utils.clamp(state.camera.y, 0, maxY)
+      end
+    end
+    return -- Block all other axis processing when minimap is fullscreen
   end
   
   -- L2 trigger handling for game speed switching in retroid mode
@@ -2432,8 +2515,8 @@ function love.gamepadaxis(joy, axis, value)
       state.ui._lastStickState.x = value
     end
   end
-  -- Move virtual cursor with left stick when enabled
-  if state.ui._useVirtualCursor and state.ui._virtualCursor then
+  -- Move virtual cursor with left stick when enabled (but not when minimap is fullscreen)
+  if state.ui._useVirtualCursor and state.ui._virtualCursor and not state.ui.isMinimapFullscreen then
     local ax = gamepad and (gamepad:getGamepadAxis("leftx") or 0) or 0
     local ay = gamepad and (gamepad:getGamepadAxis("lefty") or 0) or 0
     local speed = 400

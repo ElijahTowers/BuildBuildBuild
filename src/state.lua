@@ -40,6 +40,10 @@ state.ui = {
   _missionSelectorButtons = nil,
   _miniMap = nil,
   showMinimap = true,
+  isMinimapFullscreen = false,
+  -- Fullscreen minimap pan velocity (smoothed)
+  _minimapPanVX = 0,
+  _minimapPanVY = 0,
   _handheldMode = false,
   _controllerHintAlpha = 0,
   showMissionPanel = true,
