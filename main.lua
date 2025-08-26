@@ -1973,14 +1973,6 @@ end
 
 function love.gamepadpressed(joy, button)
   gamepad = joy
-  -- Retroid handheld mapping: ensure most-right button acts as 'a' (select), and the other as 'b' (back)
-  if state.ui._handheldMode then
-    if button == 'b' then
-      button = 'a'
-    elseif button == 'a' then
-      button = 'b'
-    end
-  end
   if state.ui._startupChoiceOpen then
     if button == 'dpleft' then state.ui._startupChoiceFocus = 1 return end
     if button == 'dpright' then state.ui._startupChoiceFocus = 2 return end
@@ -2058,6 +2050,11 @@ function love.gamepadpressed(joy, button)
       state.ui.isBuildQueueOpen = false
       state.ui._queueFocusIndex = nil
       state.ui._queueSelectedIndex = nil
+      return
+    elseif state.ui.isVillagersPanelOpen and state.ui._handheldMode then
+      -- B button in villagers panel: close the panel
+      state.ui.isVillagersPanelOpen = false
+      state.ui._villagersPanelFocus = nil
       return
     end
     local x, y = state.ui._virtualCursor.x or 0, state.ui._virtualCursor.y or 0
