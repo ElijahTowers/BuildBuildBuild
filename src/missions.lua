@@ -349,9 +349,9 @@ local function setStage1(state)
 	state.mission.completed = false
 	state.mission.rewardGiven = false
 	state.mission.objectives = {
-		{ id = 'build_lumberyard', text = 'Build 1 Lumberyard', done = false, current = 0, target = 1 },
-		{ id = 'build_farm', text = 'Build 1 Farm', done = false, current = 0, target = 1 },
-		{ id = 'build_market', text = 'Build 1 Market', done = false, current = 0, target = 1 }
+		{ id = 'build_lumberyard', text = 'Timber Time: Build 1 Lumberyard', done = false, current = 0, target = 1 },
+		{ id = 'build_farm', text = 'Field of Greens: Build 1 Farm', done = false, current = 0, target = 1 },
+		{ id = 'build_market', text = 'Open for Business: Build 1 Market', done = false, current = 0, target = 1 }
 	}
 end
 
@@ -362,9 +362,9 @@ local function setStage2(state)
 	state.mission.completed = false
 	state.mission.rewardGiven = false
 	state.mission.objectives = {
-		{ id = 'stock_food', text = 'Stock Markets with food equal to population', done = false, current = 0, target = 0 },
-		{ id = 'build_house', text = 'Build 1 House', done = false, current = 0, target = 1 },
-		{ id = 'place_roads', text = 'Lay 12 road tiles', done = false, current = 0, target = 12 }
+		{ id = 'stock_food', text = 'Pantry Prime: Stock Markets with food equal to population', done = false, current = 0, target = 0 },
+		{ id = 'build_house', text = 'Home Sweet Home: Build 1 House', done = false, current = 0, target = 1 },
+		{ id = 'place_roads', text = 'Pave the Way: Lay 12 road tiles', done = false, current = 0, target = 12 }
 	}
 end
 
@@ -497,9 +497,9 @@ function missions.update(state, dt)
 			state.mission.completed = false
 			state.mission.rewardGiven = false
 			state.mission.objectives = {
-				{ id = 'markets_3', text = 'Build 2 additional Markets (total 3)', done = false, current = 0, target = 3 },
-				{ id = 'feed_streak', text = 'Feed everyone for 2 consecutive nights', done = false, current = 0, target = 2 },
-				{ id = 'roads_20', text = 'Lay 20 road tiles', done = false, current = 0, target = 20 }
+				{ id = 'markets_3', text = 'Stall Street: Build 2 additional Markets (total 3)', done = false, current = 0, target = 3 },
+				{ id = 'feed_streak', text = 'Midnight Buffet: Feed everyone for 2 consecutive nights', done = false, current = 0, target = 2 },
+				{ id = 'roads_20', text = 'Main Artery: Lay 20 road tiles', done = false, current = 0, target = 20 }
 			}
 			state.mission._feedStreak = 0
 		elseif prev == 3 then
@@ -523,9 +523,9 @@ function missions.update(state, dt)
 			state.mission.completed = false
 			state.mission.rewardGiven = false
 			state.mission.objectives = {
-				{ id = 'trees_50', text = 'Have 50 living trees in the city', done = false, current = 0, target = 50 },
-				{ id = 'road_loop', text = 'Create a road loop of at least 12 tiles', done = false, current = 0, target = 1 },
-				{ id = 'logistics_day', text = 'Keep storage below 90% full for a day', done = false, current = 0, target = 1 }
+				{ id = 'trees_50', text = 'Leaf It In: Have 50 living trees in the city', done = false, current = 0, target = 50 },
+				{ id = 'road_loop', text = 'Roundabout Way: Create a road loop of at least 12 tiles', done = false, current = 0, target = 1 },
+				{ id = 'logistics_day', text = 'Lighten the Load: Keep storage below 90% full for a day', done = false, current = 0, target = 1 }
 			}
 			state.mission._logisticsTimer = 0
 		elseif prev == 5 then
@@ -535,9 +535,9 @@ function missions.update(state, dt)
 			state.mission.completed = false
 			state.mission.rewardGiven = false
 			state.mission.objectives = {
-				{ id = 'stock_150', text = 'Stock Markets with 1.5x population food before dusk', done = false, current = 0, target = 150 },
-				{ id = 'night_ok', text = 'Survive one night with zero starvation', done = false, current = 0, target = 1 },
-				{ id = 'houses_connected', text = 'Connect every House to a Market via roads', done = false, current = 0, target = 100 }
+				{ id = 'stock_150', text = 'Feast Mode: Stock Markets with 1.5x population food before dusk', done = false, current = 0, target = 150 },
+				{ id = 'night_ok', text = 'Lights Out, Bellies Full: Survive one night with zero starvation', done = false, current = 0, target = 1 },
+				{ id = 'houses_connected', text = 'House Call: Connect every House to a Market via roads', done = false, current = 0, target = 100 }
 			}
 		elseif prev == 6 then
 			state.mission.stage = 7
@@ -546,8 +546,8 @@ function missions.update(state, dt)
 			state.mission.completed = false
 			state.mission.rewardGiven = false
 			state.mission.objectives = {
-				{ id = 'top_finish', text = 'Complete a building while never pausing during the day', done = false, current = 0, target = 1 },
-				{ id = 'no_idle_day', text = 'Zero idle warnings on worker buildings for a day', done = false, current = 0, target = 1 }
+				{ id = 'top_finish', text = 'Flow State: Complete a building without pausing during the day', done = false, current = 0, target = 1 },
+				{ id = 'no_idle_day', text = 'All Hands On Deck: Zero idle warnings on worker buildings for a day', done = false, current = 0, target = 1 }
 			}
 			state.mission._noIdleTimer = 0
 		end
@@ -573,9 +573,9 @@ function missions.update(state, dt)
 				state.mission.completed = false
 				state.mission.rewardGiven = false
 				state.mission.objectives = {
-					{ id = 'markets_3', text = 'Build 2 additional Markets (total 3)', done = false, current = 0, target = 3 },
-					{ id = 'feed_streak', text = 'Feed everyone for 2 consecutive nights', done = false, current = 0, target = 2 },
-					{ id = 'roads_20', text = 'Lay 20 road tiles', done = false, current = 0, target = 20 }
+					{ id = 'markets_3', text = 'Stall Street: Build 2 additional Markets (total 3)', done = false, current = 0, target = 3 },
+					{ id = 'feed_streak', text = 'Midnight Buffet: Feed everyone for 2 consecutive nights', done = false, current = 0, target = 2 },
+					{ id = 'roads_20', text = 'Main Artery: Lay 20 road tiles', done = false, current = 0, target = 20 }
 				}
 				state.mission._feedStreak = 0
 			elseif M.stage == 3 then
@@ -601,9 +601,9 @@ function missions.update(state, dt)
 				state.mission.completed = false
 				state.mission.rewardGiven = false
 				state.mission.objectives = {
-					{ id = 'trees_50', text = 'Have 50 living trees in the city', done = false, current = 0, target = 50 },
-					{ id = 'road_loop', text = 'Create a road loop of at least 12 tiles', done = false, current = 0, target = 1 },
-					{ id = 'logistics_day', text = 'Keep storage below 90% full for a day', done = false, current = 0, target = 1 }
+					{ id = 'trees_50', text = 'Leaf It In: Have 50 living trees in the city', done = false, current = 0, target = 50 },
+					{ id = 'road_loop', text = 'Roundabout Way: Create a road loop of at least 12 tiles', done = false, current = 0, target = 1 },
+					{ id = 'logistics_day', text = 'Lighten the Load: Keep storage below 90% full for a day', done = false, current = 0, target = 1 }
 				}
 				state.mission._logisticsTimer = 0
 			elseif M.stage == 5 then
@@ -614,9 +614,9 @@ function missions.update(state, dt)
 				state.mission.completed = false
 				state.mission.rewardGiven = false
 				state.mission.objectives = {
-					{ id = 'stock_150', text = 'Stock Markets with 1.5x population food before dusk', done = false, current = 0, target = 150 },
-					{ id = 'night_ok', text = 'Survive one night with zero starvation', done = false, current = 0, target = 1 },
-					{ id = 'houses_connected', text = 'Connect every House to a Market via roads', done = false, current = 0, target = 100 }
+					{ id = 'stock_150', text = 'Feast Mode: Stock Markets with 1.5x population food before dusk', done = false, current = 0, target = 150 },
+					{ id = 'night_ok', text = 'Lights Out, Bellies Full: Survive one night with zero starvation', done = false, current = 0, target = 1 },
+					{ id = 'houses_connected', text = 'House Call: Connect every House to a Market via roads', done = false, current = 0, target = 100 }
 				}
 			elseif M.stage == 6 then
 				-- Stage 7 – Master Planner
@@ -626,8 +626,8 @@ function missions.update(state, dt)
 				state.mission.completed = false
 				state.mission.rewardGiven = false
 				state.mission.objectives = {
-					{ id = 'top_finish', text = 'Complete a building while never pausing during the day', done = false, current = 0, target = 1 },
-					{ id = 'no_idle_day', text = 'Zero idle warnings on worker buildings for a day', done = false, current = 0, target = 1 }
+					{ id = 'top_finish', text = 'Flow State: Complete a building without pausing during the day', done = false, current = 0, target = 1 },
+					{ id = 'no_idle_day', text = 'All Hands On Deck: Zero idle warnings on worker buildings for a day', done = false, current = 0, target = 1 }
 				}
 				state.mission._noIdleTimer = 0
 			end

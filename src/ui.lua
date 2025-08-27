@@ -756,14 +756,23 @@ function ui.drawMiniMap(state)
   end
 end
 
+-- Optional: small corner badge hint for compact objectives card
+-- removed hint chip for compact objectives panel
+
 -- Small D-pad hint (handheld only) in lower-left corner
 function ui.drawDpadHint(state)
   if not state.ui._handheldMode then return end
   local screenW, screenH = love.graphics.getDimensions()
-  -- Anchor in lower-left with some padding
+  -- Anchor in lower-left with some padding; position whole cluster from bottom-left
   local pad = 12
-  local cx = pad + 90
-  local cy = screenH - pad - 50
+  -- metrics depend on font, compute left-chip width to keep within screen
+  pushTinyFont()
+  local fontForLayout = love.graphics.getFont()
+  local leftLabelMeasure = 'Objectives'
+  local leftChipW = (fontForLayout:getWidth(leftLabelMeasure) + 8)
+  popUIFont()
+  local cx = pad + leftChipW + 12 + 26 -- left chip + gap + baseR
+  local cy = screenH - pad - 26 - (love.graphics.getFont():getHeight() + 10)
 
   -- Fancy D-pad metrics
   local baseR = 26            -- round base radius
@@ -814,7 +823,7 @@ function ui.drawDpadHint(state)
   -- Labels (kept outside of the dpad, aligned and with background chips)
   local upLabel = 'Queue'
   local downLabel = 'Villagers'
-  local leftLabel = 'Missions'
+  local leftLabel = 'Objectives'
   local rightLabel = 'Map'
 
   pushTinyFont()
@@ -833,7 +842,8 @@ function ui.drawDpadHint(state)
   local extent = baseR + 10
   drawChip(upLabel,   cx, cy - extent - font:getHeight() - 4, 'center')
   drawChip(downLabel, cx, cy + extent + 6, 'center')
-  drawChip(leftLabel, cx - extent - 6 - font:getWidth(leftLabel), cy - font:getHeight()/2, 'left')
+  -- Left chip anchored to screen left
+  drawChip(leftLabel, pad, cy - font:getHeight()/2, 'left')
   drawChip(rightLabel, cx + extent + 6, cy - font:getHeight()/2, 'left')
   popUIFont()
 end
@@ -1175,25 +1185,51 @@ function ui.drawMissionPanel(state)
   local screenW, screenH = love.graphics.getDimensions()
   -- Scale panel width; smaller on handheld
   local handheld = state.ui._handheldMode
+  local fullscreen = handheld and state.ui.isMissionFullscreen
   if handheld then pushTinyFont() end
-  local w = handheld and math.min(360, math.max(300, math.floor(screenW * 0.45))) or math.min(560, math.max(420, math.floor(screenW * 0.45)))
-  local padding = 12
-  local titleH = handheld and 18 or 24
+  -- Compact card for handheld corner; full overlay if fullscreen flag
+  local w
+  if fullscreen then
+    w = math.min(560, math.max(420, math.floor(screenW * 0.8)))
+  else
+    w = handheld and 240 or math.min(560, math.max(420, math.floor(screenW * 0.45)))
+  end
+  local padding = (handheld and not fullscreen) and 8 or 12
+  local titleH = (handheld and not fullscreen) and 16 or (handheld and 18 or 24)
   local font = love.graphics.getFont()
   local lineH = font:getHeight()
   local contentH = titleH + 6
   local textW = w - 44
   -- Measure objective blocks
   for _, o in ipairs(M.objectives or {}) do
-    local _, lines = font:getWrap(o.text or '', textW)
-    local linesH = math.max(lineH, #lines * lineH)
-    local barH = (o.target and o.target > 1) and (10 + 8) or 0
-    contentH = contentH + math.max(24, linesH) + barH + 10
+    if handheld and not fullscreen then
+      -- Compact row: title + small progress bar/label
+      local rowH = 20
+      local bh = (o.target and o.target > 1) and 6 or 0
+      contentH = contentH + rowH + (bh > 0 and (bh + 8) or 0) + 8
+    else
+      local _, lines = font:getWrap(o.text or '', textW)
+      local linesH = math.max(lineH, #lines * lineH)
+      local barH = (o.target and o.target > 1) and (10 + 8) or 0
+      contentH = contentH + math.max(24, linesH) + barH + 10
+    end
   end
-  if M.completed then contentH = contentH + 20 end
+  if M.completed and ((not handheld) or fullscreen) then contentH = contentH + 20 end
   local h = contentH + padding * 2
-  local x = screenW - w - 16
-  local y = screenH - h - 16
+  local x
+  local y
+  if fullscreen then
+    -- Center fullscreen overlay
+    x = (screenW - w) / 2
+    y = (screenH - h) / 2
+    -- darken background
+    love.graphics.setColor(0, 0, 0, 0.45)
+    love.graphics.rectangle('fill', 0, 0, screenW, screenH)
+  else
+    -- Corner card (lower-right), tight margins
+    x = screenW - w - 8
+    y = screenH - h - 8
+  end
 
   -- Pixel-art parchment theme (panel frame)
   local function drawPixelFrame(px, py, pw, ph)
@@ -1208,16 +1244,26 @@ function ui.drawMissionPanel(state)
   end
   drawPixelFrame(x, y, w, h)
 
-  -- Title in pixel style
+  -- Title in pixel style (truncate on compact card)
   love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
-  love.graphics.print('MISSION: ' .. string.upper(M.name or 'Unknown'), x + 12, y + 10)
+  local title = 'MISSION: ' .. string.upper(M.name or 'Unknown')
+  if handheld and not fullscreen then
+    title = truncateToWidth(title, w - 24)
+  end
+  love.graphics.print(title, x + 12, y + 6)
 
   local oy = y + 10 + titleH
   for _, o in ipairs(M.objectives or {}) do
     -- draw scroll-like strip
     -- Recompute wrapped lines per objective to size the strip correctly
-    local _, wrapped = font:getWrap(o.text or '', textW)
-    local rowH = math.max(handheld and 18 or 24, #wrapped * lineH + 2)
+    local _, wrapped = font:getWrap(fullscreen and (o.text or '') or '', textW)
+    local rowH
+    if handheld and not fullscreen then
+      -- Compact row height for handheld corner: title + slim progress
+      rowH = 20
+    else
+      rowH = math.max(handheld and 18 or 24, #wrapped * lineH + 2)
+    end
     local stripW = w - 24
     local sx = x + 12
     local sy = oy - 4
@@ -1236,22 +1282,30 @@ function ui.drawMissionPanel(state)
       drawFancyCheck(sx + 12, sy + 12, 8, o.completePulse)
     end
 
-    -- Wrapped text in uppercase for pixel feel
-    love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
-    local tx = sx + 22
-    local tw = stripW - 44
-    local text = (o.text or '')
-    -- Append live state hints for select objectives
-    if state.mission and state.mission.stage == 5 then
-      if o.id == 'road_loop' then
-        local len = state.mission._loopLen or 0
-        text = text .. string.format("  (%d/12 tiles)", math.min(12, len))
-      elseif o.id == 'logistics_day' then
-        local pct = state.mission._logisticsPct or 0
-        text = text .. string.format("  (Storage %d%% full)", pct)
+    -- Wrapped text in uppercase for pixel feel (only in fullscreen or desktop)
+    if (not handheld) or fullscreen then
+      love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+      local tx = sx + 22
+      local tw = stripW - 44
+      local text = (o.text or '')
+      -- Append live state hints for select objectives
+      if state.mission and state.mission.stage == 5 then
+        if o.id == 'road_loop' then
+          local len = state.mission._loopLen or 0
+          text = text .. string.format("  (%d/12 tiles)", math.min(12, len))
+        elseif o.id == 'logistics_day' then
+          local pct = state.mission._logisticsPct or 0
+          text = text .. string.format("  (Storage %d%% full)", pct)
+        end
       end
+      love.graphics.printf(text, tx, sy + 6, tw, 'left')
+    else
+      -- Compact: show only the witty title extracted from text (before colon)
+      local full = o.text or ''
+      local titleOnly = full:match('^([^:]+)') or full
+      love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+      love.graphics.print(titleOnly, sx + 22, sy + 2)
     end
-    love.graphics.printf(text, tx, sy + 6, tw, 'left')
 
     -- Progress bar (pixel)
     local blockBottom = sy + rowH + 2
@@ -1283,13 +1337,23 @@ function ui.drawMissionPanel(state)
       end
       local lw = font:getWidth(label)
       love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
-      love.graphics.print(label, bx + bw - lw, by - (handheld and 10 or 12))
-      oy = by + bh + (handheld and 10 or 12)
+      if handheld and not fullscreen then
+        -- Compact panel: align numbers with title baseline
+        love.graphics.print(label, sx + (stripW - 14) - lw, sy + 2)
+      else
+        love.graphics.print(label, bx + bw - lw, by - (handheld and 10 or 12))
+      end
+      oy = by + bh + ((handheld and not fullscreen) and 6 or (handheld and 10 or 12))
     else
-      oy = blockBottom + 12
+      -- No bar: still show progress label (0/1 or 1/1) on the right
+      local label = string.format('%d / %d', math.floor(o.current or 0), math.max(1, o.target or 1))
+      local lw = font:getWidth(label)
+      love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
+      love.graphics.print(label, sx + (stripW - 14) - lw, sy + 2)
+      oy = blockBottom + ((handheld and not fullscreen) and 6 or 8)
     end
   end
-  if M.completed then
+  if M.completed and ((not handheld) or fullscreen) then
     love.graphics.setColor(1, 1, 0.6, 1)
     love.graphics.print('Completed!', x + 12, y + h - (handheld and 18 or 22))
   end

@@ -1025,7 +1025,7 @@ function love.draw()
   if state.ui.showMinimap then ui.drawMiniMap(state) end
   -- Handheld: show small D-pad hint in lower-left
   if state.ui._handheldMode then ui.drawDpadHint(state) end
-  if state.ui.showMissionPanel then ui.drawMissionPanel(state) end
+  if state.ui.showMissionPanel or (state.ui._handheldMode and state.ui.isMissionFullscreen) then ui.drawMissionPanel(state) end
   ui.drawPrompt(state)
 
   local sel = state.ui.selectedBuilding
@@ -2022,6 +2022,13 @@ function love.gamepadpressed(joy, button)
       return
     end
   end
+  -- If objectives overlay is open in handheld, close with A/B/Left and block others
+  if state.ui._handheldMode and state.ui.isMissionFullscreen then
+    if button == 'a' or button == 'b' or button == 'dpleft' then
+      state.ui.isMissionFullscreen = false
+    end
+    return
+  end
   -- While Villagers panel is open, use L/R shoulders to change workers and block other actions
   if state.ui.isVillagersPanelOpen and state.ui._villagersPanelButtons then
     local idx = state.ui._villagersPanelFocus or 1
@@ -2198,8 +2205,20 @@ function love.gamepadpressed(joy, button)
     end
   elseif button == 'dpleft' then
     if state.ui._handheldMode then
-      -- Toggle missions panel in handheld mode
-      state.ui.showMissionPanel = not state.ui.showMissionPanel
+      -- Toggle objectives fullscreen overlay in handheld mode
+      state.ui.isMissionFullscreen = not state.ui.isMissionFullscreen
+      if state.ui.isMissionFullscreen then
+        -- Close/suppress other panels and interactions
+        state.ui.isBuildMenuOpen = false
+        state.ui.isVillagersPanelOpen = false
+        state.ui.isBuildQueueOpen = false
+        state.ui.isPaused = false
+        state.ui.isPlacingBuilding = false
+        state.ui.selectedBuildingType = nil
+        state.ui.isPlacingRoad = false
+        state.ui.roadStartTile = nil
+        state.ui._useVirtualCursor = false
+      end
     else
       if state.ui.isBuildMenuOpen then
         moveBuildMenuFocus(-1, 0)

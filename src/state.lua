@@ -41,6 +41,8 @@ state.ui = {
   _miniMap = nil,
   showMinimap = true,
   isMinimapFullscreen = false,
+  -- Objectives panel fullscreen overlay (handheld)
+  isMissionFullscreen = false,
   -- Fullscreen minimap pan velocity (smoothed)
   _minimapPanVX = 0,
   _minimapPanVY = 0,
