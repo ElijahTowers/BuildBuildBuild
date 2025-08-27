@@ -56,20 +56,43 @@ end
 function roads.markUsed(state, x, y)
   ensureState(state)
   local k = key(x, y)
-  -- Increment softly and clamp; this avoids long glows from rapid repeated marks
+  -- Pump usage value for glow pulse and also seed a directional trail
   local v = (state.game.roadsUsage[k] or 0)
-  v = v + 0.35
-  if v > 1.0 then v = 1.0 end
+  v = math.min(1.0, v + 0.45)
   state.game.roadsUsage[k] = v
+  -- Seed sparkle particles list
+  state.game.roadsSpark = state.game.roadsSpark or {}
+  local TILE = constants.TILE_SIZE
+  table.insert(state.game.roadsSpark, {
+    x = x * TILE + TILE/2,
+    y = y * TILE + TILE/2,
+    t = 0,
+    life = 0.35 + math.random() * 0.25,
+    vx = (math.random() * 2 - 1) * 20,
+    vy = (math.random() * 2 - 1) * 20
+  })
 end
 
 function roads.update(state, dt)
   ensureState(state)
-  -- Slightly faster decay to shorten false-positive glows
-  local decay = 2.2 * dt
+  -- Decay usage for glow
+  local decay = 1.8 * dt
   for k, v in pairs(state.game.roadsUsage) do
     v = v - decay
     if v <= 0 then state.game.roadsUsage[k] = nil else state.game.roadsUsage[k] = v end
+  end
+  -- Update sparkles
+  if state.game.roadsSpark then
+    local alive = {}
+    for _, p in ipairs(state.game.roadsSpark) do
+      p.t = p.t + dt
+      p.x = p.x + p.vx * dt
+      p.y = p.y + p.vy * dt
+      p.vx = p.vx * 0.96
+      p.vy = p.vy * 0.96
+      if p.t < p.life then table.insert(alive, p) end
+    end
+    state.game.roadsSpark = alive
   end
 end
 
@@ -330,18 +353,37 @@ function roads.draw(state)
       love.graphics.rectangle('fill', px + 2, py + 6, TILE / 2 - 3, TILE - 12)
     end
 
-    -- usage glow
+    -- usage glow (pulsing, more noticeable)
     local u = state.game.roadsUsage[key(x, y)] or 0
     if u > 0 then
-      love.graphics.setColor(1.0, 1.0, 0.6, 0.25 * u)
-      love.graphics.rectangle('fill', px + 2, py + 2, TILE - 4, TILE - 4, 6, 6)
-      love.graphics.setColor(1.0, 0.95, 0.5, 0.3 * u)
-      love.graphics.rectangle('line', px + 2, py + 2, TILE - 4, TILE - 4, 6, 6)
+      local pulse = 0.65 + 0.35 * math.sin(love.timer.getTime() * 8 + (x + y) * 0.6)
+      love.graphics.setColor(1.0, 0.95, 0.4, 0.20 * u * pulse)
+      love.graphics.rectangle('fill', px + 1, py + 1, TILE - 2, TILE - 2, 8, 8)
+      love.graphics.setColor(1.0, 0.95, 0.5, 0.35 * u)
+      love.graphics.rectangle('line', px + 1, py + 1, TILE - 2, TILE - 2, 8, 8)
+      -- small moving dash along center to imply flow
+      love.graphics.setScissor(px, py, TILE, TILE)
+      local t = love.timer.getTime() * 60
+      local offset = ((t + x * 7 + y * 13) % TILE)
+      love.graphics.setColor(1.0, 0.9, 0.4, 0.55 * u)
+      love.graphics.rectangle('fill', px + offset - 6, py + TILE/2 - 1, 12, 2)
+      love.graphics.setScissor()
     end
 
     -- outline (low alpha)
     love.graphics.setColor(colors.outline[1], colors.outline[2], colors.outline[3], 0.12)
     love.graphics.rectangle('line', px + 2, py + 2, TILE - 4, TILE - 4, 4, 4)
+  end
+  -- Draw sparkles last so they sit on top
+  if state.game.roadsSpark then
+    for _, p in ipairs(state.game.roadsSpark) do
+      local k = (p.t / p.life)
+      local a = (1 - k)
+      love.graphics.setColor(1.0, 0.95, 0.5, 0.8 * a)
+      love.graphics.circle('fill', p.x, p.y, 1.5 + 1.0 * (1 - a))
+      love.graphics.setColor(1.0, 0.95, 0.5, 0.6 * a)
+      love.graphics.circle('line', p.x, p.y, 2.2 + 1.0 * (1 - a))
+    end
   end
 end
 
