@@ -506,7 +506,12 @@ function buildings.drawAll(state)
       love.graphics.pop()
       -- hover detection for tooltip (mouse in world space vs indicator world position)
       do
+        -- Support virtual cursor hover (handheld) as well as mouse
         local mx, my = love.mouse.getPosition()
+        if state.ui and state.ui._handheldMode and state.ui._useVirtualCursor and state.ui._virtualCursor then
+          mx = state.ui._virtualCursor.x or mx
+          my = state.ui._virtualCursor.y or my
+        end
         local worldX = state.camera.x + mx / (state.camera.scale or 1)
         local worldY = state.camera.y + my / (state.camera.scale or 1)
         local indWorldX = cx + anchorX * scale

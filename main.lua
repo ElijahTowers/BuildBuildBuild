@@ -754,19 +754,74 @@ function love.update(dt)
       state.ui.isBuildMenuOpen or state.ui.isMissionSelectorOpen or state.ui.isVillagersPanelOpen or state.ui.isBuildQueueOpen or state.ui.isFoodPanelOpen or state.ui.isPaused or state.ui._wheelMenuActive or state.ui._controlsOverlayOpen
     )
     if not suppressCursor then
-      -- Much lower speed and use cubic response for precision near center
-      local maxSpeed = 180
-      local ax3 = ax * math.abs(ax) * math.abs(ax)
-      local ay3 = ay * math.abs(ay) * math.abs(ay)
-      local scale = state.camera.scale or 1
-      local vx = (ax3 * maxSpeed * dt)
-      local vy = (ay3 * maxSpeed * dt)
-      -- Much larger deadzone for precision
-      if math.abs(ax) > 0.35 or math.abs(ay) > 0.35 then
-        state.ui._useVirtualCursor = true
-        state.ui._virtualCursor.x = utils.clamp((state.ui._virtualCursor.x or 0) + vx, 0, love.graphics.getWidth())
-        state.ui._virtualCursor.y = utils.clamp((state.ui._virtualCursor.y or 0) + vy, 0, love.graphics.getHeight())
+      -- Micro-step and hold-repeat: very small deflection moves 1px per tick
+      state.ui._lastCursorStickX = state.ui._lastCursorStickX or 0
+      state.ui._lastCursorStickY = state.ui._lastCursorStickY or 0
+      state.ui._cursorRepeatTX = state.ui._cursorRepeatTX or 0
+      state.ui._cursorRepeatTY = state.ui._cursorRepeatTY or 0
+      local prevCX, prevCY = state.ui._lastCursorStickX, state.ui._lastCursorStickY
+      local microDZ, microHi = 0.18, 0.55
+      local stepX, stepY = 0, 0
+      local inMicroX = math.abs(ax) > microDZ and math.abs(ax) <= microHi
+      local inMicroY = math.abs(ay) > microDZ and math.abs(ay) <= microHi
+      -- Edge step when crossing into micro zone
+      if inMicroX and math.abs(prevCX) <= microDZ then stepX = (ax > 0) and 1 or -1 end
+      if inMicroY and math.abs(prevCY) <= microDZ then stepY = (ay > 0) and 1 or -1 end
+      -- Hold repeat while staying in micro zone
+      local initialDelay = state.ui.isPlacingBuilding and 0.22 or 0.18
+      local repeatDelay  = state.ui.isPlacingBuilding and 0.05 or 0.04
+      if inMicroX then
+        state.ui._cursorRepeatTX = state.ui._cursorRepeatTX + dt
+        if state.ui._cursorRepeatTX > ((state.ui._cursorHadFirstX and repeatDelay) or initialDelay) then
+          stepX = stepX + ((ax > 0) and 1 or -1)
+          state.ui._cursorRepeatTX = 0
+          state.ui._cursorHadFirstX = true
+        end
+      else
+        state.ui._cursorRepeatTX = 0; state.ui._cursorHadFirstX = false
       end
+      if inMicroY then
+        state.ui._cursorRepeatTY = state.ui._cursorRepeatTY + dt
+        if state.ui._cursorRepeatTY > ((state.ui._cursorHadFirstY and repeatDelay) or initialDelay) then
+          stepY = stepY + ((ay > 0) and 1 or -1)
+          state.ui._cursorRepeatTY = 0
+          state.ui._cursorHadFirstY = true
+        end
+      else
+        state.ui._cursorRepeatTY = 0; state.ui._cursorHadFirstY = false
+      end
+      if stepX ~= 0 or stepY ~= 0 then
+        state.ui._useVirtualCursor = true
+        state.ui._virtualCursor.x = utils.clamp((state.ui._virtualCursor.x or 0) + stepX, 0, love.graphics.getWidth())
+        state.ui._virtualCursor.y = utils.clamp((state.ui._virtualCursor.y or 0) + stepY, 0, love.graphics.getHeight())
+      end
+
+      -- For larger deflections, use smooth analog movement with gentle ramp
+      local usedAnalog = false
+      if math.abs(ax) > microHi or math.abs(ay) > microHi then
+        local dz = 0.15
+        local function axisToDelta(v)
+          local av = math.abs(v)
+          if av <= dz then return 0 end
+          local n = (av - dz) / (1.0 - dz)
+          local base = state.ui.isPlacingBuilding and 10 or 25
+          local maxAdd = state.ui.isPlacingBuilding and 120 or 200
+          local speed = base + (n * n) * maxAdd
+          return (v > 0 and 1 or -1) * speed * dt
+        end
+        local dx = axisToDelta(ax)
+        local dy = axisToDelta(ay)
+        if dx ~= 0 or dy ~= 0 then
+          state.ui._useVirtualCursor = true
+          state.ui._virtualCursor.x = utils.clamp((state.ui._virtualCursor.x or 0) + dx, 0, love.graphics.getWidth())
+          state.ui._virtualCursor.y = utils.clamp((state.ui._virtualCursor.y or 0) + dy, 0, love.graphics.getHeight())
+          usedAnalog = true
+        end
+      end
+
+      -- Update cursor stick history for micro-step edge detection
+      state.ui._lastCursorStickX = ax
+      state.ui._lastCursorStickY = ay
     end
   end
   -- Stacked prompts update

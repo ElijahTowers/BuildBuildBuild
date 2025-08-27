@@ -1194,19 +1194,28 @@ function ui.drawMissionPanel(state)
   else
     w = handheld and 240 or math.min(560, math.max(420, math.floor(screenW * 0.45)))
   end
-  local padding = (handheld and not fullscreen) and 8 or 12
+  local paddingTop, paddingBottom
+  if handheld and not fullscreen then
+    paddingTop, paddingBottom = 8, 2
+  else
+    paddingTop, paddingBottom = 12, 12
+  end
   local titleH = (handheld and not fullscreen) and 16 or (handheld and 18 or 24)
   local font = love.graphics.getFont()
   local lineH = font:getHeight()
   local contentH = titleH + 6
   local textW = w - 44
   -- Measure objective blocks
-  for _, o in ipairs(M.objectives or {}) do
+  local objectivesList = M.objectives or {}
+  local objectivesCount = #objectivesList
+  for idx, o in ipairs(objectivesList) do
     if handheld and not fullscreen then
       -- Compact row: title + small progress bar/label
       local rowH = 20
       local bh = (o.target and o.target > 1) and 6 or 0
-      contentH = contentH + rowH + (bh > 0 and (bh + 8) or 0) + 8
+      local spacing = (idx < objectivesCount) and 6 or 0
+      -- Actual drawn increment per row: header(18) + bar(bh) + spacing
+      contentH = contentH + 18 + bh + spacing
     else
       local _, lines = font:getWrap(o.text or '', textW)
       local linesH = math.max(lineH, #lines * lineH)
@@ -1215,7 +1224,7 @@ function ui.drawMissionPanel(state)
     end
   end
   if M.completed and ((not handheld) or fullscreen) then contentH = contentH + 20 end
-  local h = contentH + padding * 2
+  local h = contentH + paddingTop + paddingBottom
   local x
   local y
   if fullscreen then
@@ -1253,7 +1262,7 @@ function ui.drawMissionPanel(state)
   love.graphics.print(title, x + 12, y + 6)
 
   local oy = y + 10 + titleH
-  for _, o in ipairs(M.objectives or {}) do
+  for idx, o in ipairs(M.objectives or {}) do
     -- draw scroll-like strip
     -- Recompute wrapped lines per objective to size the strip correctly
     local _, wrapped = font:getWrap(fullscreen and (o.text or '') or '', textW)
@@ -1309,6 +1318,7 @@ function ui.drawMissionPanel(state)
 
     -- Progress bar (pixel)
     local blockBottom = sy + rowH + 2
+    local isLast = (idx == #(M.objectives or {}))
     if o.target and o.target > 1 then
       local bw, bh = stripW - 28, handheld and 6 or 8
       local bx, by = sx + 14, blockBottom
@@ -1337,20 +1347,27 @@ function ui.drawMissionPanel(state)
       end
       local lw = font:getWidth(label)
       love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
-      if handheld and not fullscreen then
-        -- Compact panel: align numbers with title baseline
-        love.graphics.print(label, sx + (stripW - 14) - lw, sy + 2)
+      if handheld then
+        if fullscreen then
+          -- Fullscreen handheld: align with title text baseline
+          love.graphics.print(label, sx + (stripW - 14) - lw, sy + 6)
+        else
+          -- Compact panel
+          love.graphics.print(label, sx + (stripW - 14) - lw, sy + 2)
+        end
       else
-        love.graphics.print(label, bx + bw - lw, by - (handheld and 10 or 12))
+        -- Desktop
+        love.graphics.print(label, bx + bw - lw, by - 12)
       end
-      oy = by + bh + ((handheld and not fullscreen) and 6 or (handheld and 10 or 12))
+      oy = by + bh + ((handheld and not fullscreen) and (isLast and 0 or 6) or (handheld and 10 or 12))
     else
       -- No bar: still show progress label (0/1 or 1/1) on the right
       local label = string.format('%d / %d', math.floor(o.current or 0), math.max(1, o.target or 1))
       local lw = font:getWidth(label)
       love.graphics.setColor(0.18, 0.11, 0.06, 1.0)
-      love.graphics.print(label, sx + (stripW - 14) - lw, sy + 2)
-      oy = blockBottom + ((handheld and not fullscreen) and 6 or 8)
+      local labelY = (handheld and fullscreen) and (sy + 6) or (sy + 2)
+      love.graphics.print(label, sx + (stripW - 14) - lw, labelY)
+      oy = blockBottom + ((handheld and not fullscreen) and (isLast and 0 or 6) or 8)
     end
   end
   if M.completed and ((not handheld) or fullscreen) then
